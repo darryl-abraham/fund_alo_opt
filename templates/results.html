@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block title %}Optimization Results - Fund Allocation Optimizer{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0"><i class="bi bi-check-circle"></i> Optimization Results</h4>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-success">
+                    <p class="mb-0"><strong>Success!</strong> Your fund allocation has been optimized for maximum interest returns.</p>
+                </div>
+                
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <h5>Your Optimization Parameters</h5>
+                        <table class="table table-bordered">
+                            <tbody>
+                                <tr>
+                                    <th style="width: 30%;">Branch Name</th>
+                                    <td>{{ params.branch_name }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Association Name</th>
+                                    <td>{{ params.association_name }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Total Association Funds</th>
+                                    <td>${{ '{:,.2f}'.format(results.summary.total_funds) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0">Allocation Summary</h5>
+                            <a href="{{ url_for('download_results') }}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-download"></i> Download Excel
+                            </a>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-muted">Total Allocated</h6>
+                                        <h4 class="card-text">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-muted">Expected Return</h6>
+                                        <h4 class="card-text">${{ '{:,.2f}'.format(results.summary.total_return) }}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-muted">Weighted Avg. Rate</h6>
+                                        <h4 class="card-text">{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}%</h4>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-12">
+                        <h5>Detailed Allocation</h5>
+                        <div class="table-responsive">
+                            <table class="table table-striped table-bordered">
+                                <thead class="table-primary">
+                                    <tr>
+                                        <th>Bank Name</th>
+                                        <th>CD Term</th>
+                                        <th>Allocated Amount</th>
+                                        <th>CD Rate (%)</th>
+                                        <th>Expected Return</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in results.results %}
+                                    <tr>
+                                        <td>{{ item['Bank Name'] }}</td>
+                                        <td>{{ item['CD Term'] }}</td>
+                                        <td>${{ '{:,.2f}'.format(item['Allocated Amount']) }}</td>
+                                        <td>{{ '{:.2f}'.format(item['CD Rate']) }}</td>
+                                        <td>${{ '{:,.2f}'.format(item['Expected Return']) }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="table-success">
+                                    <tr>
+                                        <th>TOTAL</th>
+                                        <th></th>
+                                        <th>${{ '{:,.2f}'.format(results.summary.total_allocated) }}</th>
+                                        <th>{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}</th>
+                                        <th>${{ '{:,.2f}'.format(results.summary.total_return) }}</th>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="d-flex justify-content-between mt-4">
+                    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Form
+                    </a>
+                    <a href="{{ url_for('clear_session') }}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Start New Optimization
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Visualization</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <canvas id="allocationPieChart"></canvas>
+                    </div>
+                    <div class="col-md-6">
+                        <canvas id="termsBarChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .table-responsive {
+        overflow-x: auto;
+    }
+    canvas {
+        max-width: 100%;
+        height: auto;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Prepare data for charts
+    const results = {{ results.results|tojson }};
+    
+    // Prepare data for allocation pie chart
+    const bankData = {};
+    results.forEach(item => {
+        const bankName = item['Bank Name'];
+        if (!bankData[bankName]) {
+            bankData[bankName] = 0;
+        }
+        bankData[bankName] += item['Allocated Amount'];
+    });
+    
+    const bankNames = Object.keys(bankData);
+    const bankAllocations = Object.values(bankData);
+    
+    // Generate random colors for pie chart
+    const generateColors = (count) => {
+        const colors = [];
+        for (let i = 0; i < count; i++) {
+            const hue = (i * 137) % 360; // Use golden angle for nice color distribution
+            colors.push(`hsl(${hue}, 70%, 60%)`);
+        }
+        return colors;
+    };
+    
+    // Create pie chart
+    const pieCtx = document.getElementById('allocationPieChart').getContext('2d');
+    new Chart(pieCtx, {
+        type: 'pie',
+        data: {
+            labels: bankNames,
+            datasets: [{
+                data: bankAllocations,
+                backgroundColor: generateColors(bankNames.length),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'right',
+                },
+                title: {
+                    display: true,
+                    text: 'Allocation by Bank'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const value = context.raw;
+                            const percentage = ((value / {{ results.summary.total_allocated }}) * 100).toFixed(1);
+                            return `$${value.toLocaleString()} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Prepare data for terms bar chart
+    const termData = {};
+    results.forEach(item => {
+        const term = item['CD Term'];
+        if (!termData[term]) {
+            termData[term] = 0;
+        }
+        termData[term] += item['Allocated Amount'];
+    });
+    
+    const terms = Object.keys(termData);
+    const termAllocations = Object.values(termData);
+    
+    // Create bar chart
+    const barCtx = document.getElementById('termsBarChart').getContext('2d');
+    new Chart(barCtx, {
+        type: 'bar',
+        data: {
+            labels: terms,
+            datasets: [{
+                label: 'Allocation Amount',
+                data: termAllocations,
+                backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + value.toLocaleString();
+                        }
+                    }
+                }
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Allocation by CD Term'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const value = context.raw;
+                            return `$${value.toLocaleString()}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %} 

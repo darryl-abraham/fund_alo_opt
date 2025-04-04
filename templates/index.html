@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Fund Allocation Optimizer{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-piggy-bank"></i> Optimize Your Fund Allocation</h4>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <h5>How It Works</h5>
+                        <p>This tool helps you optimize fund allocation across different banks and CD terms to maximize interest returns based on branch relationships and association data.</p>
+                        <div class="alert alert-info">
+                            <p class="mb-0"><strong>Data Source:</strong> This tool uses branch relationships and association data from our database to optimize your fund allocation.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <form action="{{ url_for('web_optimize') }}" method="post" id="optimizationForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Branch Selection</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="branch_name" class="form-label">Select Branch <span class="text-danger">*</span></label>
+                                        {% if branches %}
+                                            <select class="form-select" id="branch_name" name="branch_name" required>
+                                                <option value="">Select a branch...</option>
+                                                {% for branch in branches %}
+                                                    <option value="{{ branch }}">{{ branch }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <div class="form-text">
+                                                Select the branch for which you want to optimize fund allocation. There are {{ branches|length }} branches available.
+                                            </div>
+                                        {% else %}
+                                            <div class="alert alert-warning">
+                                                <p class="mb-0">No branches found in the database.</p>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Association Selection</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="association_name" class="form-label">Select Association <span class="text-danger">*</span></label>
+                                        {% if associations %}
+                                            <select class="form-select" id="association_name" name="association_name" required>
+                                                <option value="">Select an association...</option>
+                                                {% for association in associations %}
+                                                    <option value="{{ association }}">{{ association }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <div class="form-text">
+                                                Select the association for which you want to optimize fund allocation. There are {{ associations|length }} associations available.
+                                            </div>
+                                        {% else %}
+                                            <div class="alert alert-warning">
+                                                <p class="mb-0">No associations found in the database.</p>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2 mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="bi bi-graph-up"></i> Optimize Allocation
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Any JavaScript initialization can go here
+});
+</script>
+{% endblock %} 

@@ -1,0 +1,37 @@
+Bank Name,Bank Code,ECR Rate
+Alliance Assoc. Bank,CD,0.04
+Alliance Assoc. Bank,CDARS,0.29
+Alliance Assoc. Bank,MM,3.4
+Banco Popular,CD,0.58
+Banco Popular,CDARS,0.46
+Banco Popular,MM,4.26
+Bank United,CD,0.75
+Bank United,CDARS,0.37
+Bank United,MM,3.97
+Capital One,CD,0.66
+Capital One,CDARS,1.04
+Capital One,MM,3.68
+City National,CD,0.3
+City National,CD,0.3
+City National,CDARS,1.04
+City National,CDARS,0.29
+City National,MM,3.1
+City National,MM,3.73
+"Enterprise Bank & Trust",CD,0.64
+"Enterprise Bank & Trust",CDARS,0.22
+"Enterprise Bank & Trust",MM,3.12
+First Citizens Bank,CD,0.53
+First Citizens Bank,CDARS,0.99
+First Citizens Bank,MM,3.76
+Harmony Bank,CD,0.32
+Harmony Bank,CDARS,0.83
+Harmony Bank,MM,4.29
+Pacific Premier Bank,CD,0.16
+Pacific Premier Bank,CDARS,0.49
+Pacific Premier Bank,MM,3.49
+SouthState,CD,0.58
+SouthState,CDARS,1.42
+SouthState,MM,3.08
+SunWest Bank,CD,0.3
+SunWest Bank,CDARS,1.02
+SunWest Bank,MM,3.77

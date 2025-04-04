@@ -1,0 +1,32 @@
+<div class="list-group mb-4">
+    <div class="list-group-item list-group-item-primary">
+        <h5 class="mb-0"><i class="bi bi-person-circle"></i> Admin Panel</h5>
+    </div>
+    <a href="{{ url_for('admin_dashboard') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">
+        <i class="bi bi-speedometer2"></i> Dashboard
+    </a>
+    <a href="{{ url_for('admin_constraints') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'admin_constraints' %}active{% endif %}">
+        <i class="bi bi-sliders"></i> Constraints
+    </a>
+    <a href="{{ url_for('admin_change_password') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'admin_change_password' %}active{% endif %}">
+        <i class="bi bi-key"></i> Change Password
+    </a>
+    <a href="{{ url_for('admin_logout') }}" class="list-group-item list-group-item-action list-group-item-danger">
+        <i class="bi bi-box-arrow-right"></i> Logout
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> User Info</h5>
+    </div>
+    <div class="card-body">
+        <p class="mb-0"><strong>Username:</strong> {{ session.admin_username }}</p>
+    </div>
+</div>
+
+<div class="mt-4">
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm w-100">
+        <i class="bi bi-arrow-left"></i> Back to Main Site
+    </a>
+</div> 

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Error - Fund Allocation Optimizer{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-danger text-white">
+                <h4 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Error</h4>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-danger">
+                    <p class="mb-0"><strong>An error occurred while processing your request.</strong></p>
+                </div>
+                
+                <p>We apologize for the inconvenience. Please try again or contact support if the problem persists.</p>
+                
+                {% if error %}
+                <div class="mt-4">
+                    <h5>Error Details</h5>
+                    <pre class="bg-light p-3 rounded">{{ error }}</pre>
+                </div>
+                {% endif %}
+                
+                <div class="mt-4">
+                    <a href="{{ url_for('index') }}" class="btn btn-primary">
+                        <i class="bi bi-arrow-left"></i> Return to Home
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
