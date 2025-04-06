@@ -35,6 +35,38 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- New Account Overview Section -->
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <h5 class="mb-3">Account Overview</h5>
+                        <div class="card border-primary">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 border-end">
+                                        <h6 class="text-primary mb-3">Initial Account Balance</h6>
+                                        <h3 class="text-dark mb-2">${{ '{:,.2f}'.format(results.summary.total_funds) }}</h3>
+                                        <p class="text-muted mb-0">Available for Investment</p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="text-primary mb-3">Current Investment Status</h6>
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div class="text-center flex-grow-1">
+                                                <h3 class="text-dark mb-2">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</h3>
+                                                <p class="text-muted mb-0">Allocated for Investment</p>
+                                            </div>
+                                            <div class="border-start ps-4 text-center flex-grow-1">
+                                                <h3 class="text-dark mb-2">${{ '{:,.2f}'.format(results.summary.total_funds - results.summary.total_allocated) }}</h3>
+                                                <p class="text-muted mb-0">Remaining Balance</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- End of Account Overview Section -->
                 
                 <div class="row mb-4">
                     <div class="col-md-12">
@@ -160,13 +192,16 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+// Initialize data from template
+const templateData = {
+    allocationData: JSON.parse('{{ results.results|tojson|safe }}'),
+    totalAllocated: Number('{{ results.summary.total_allocated|safe }}')
+};
+
 document.addEventListener('DOMContentLoaded', function() {
-    // Prepare data for charts
-    const results = {{ results.results|tojson }};
-    
     // Prepare data for allocation pie chart
     const bankData = {};
-    results.forEach(item => {
+    templateData.allocationData.forEach(item => {
         const bankName = item['Bank Name'];
         if (!bankData[bankName]) {
             bankData[bankName] = 0;
@@ -181,7 +216,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const generateColors = (count) => {
         const colors = [];
         for (let i = 0; i < count; i++) {
-            const hue = (i * 137) % 360; // Use golden angle for nice color distribution
+            const hue = (i * 137) % 360;
             colors.push(`hsl(${hue}, 70%, 60%)`);
         }
         return colors;
@@ -203,7 +238,7 @@ document.addEventListener('DOMContentLoaded', function() {
             responsive: true,
             plugins: {
                 legend: {
-                    position: 'right',
+                    position: 'right'
                 },
                 title: {
                     display: true,
@@ -213,7 +248,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     callbacks: {
                         label: function(context) {
                             const value = context.raw;
-                            const percentage = ((value / {{ results.summary.total_allocated }}) * 100).toFixed(1);
+                            const percentage = ((value / templateData.totalAllocated) * 100).toFixed(1);
                             return `$${value.toLocaleString()} (${percentage}%)`;
                         }
                     }
@@ -224,7 +259,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Prepare data for terms bar chart
     const termData = {};
-    results.forEach(item => {
+    templateData.allocationData.forEach(item => {
         const term = item['CD Term'];
         if (!termData[term]) {
             termData[term] = 0;
