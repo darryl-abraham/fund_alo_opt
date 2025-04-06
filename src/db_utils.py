@@ -210,7 +210,7 @@ def get_constraints():
     try:
         conn = get_db_connection()
         query = """
-        SELECT id, category, name, value, weight, is_enabled, description
+        SELECT id, category, name, value, weight, is_enabled
         FROM constraints
         ORDER BY category, name
         """
@@ -220,7 +220,7 @@ def get_constraints():
     except Exception as e:
         logger.error(f"Error getting constraints: {str(e)}")
         # Return empty DataFrame on error
-        return pd.DataFrame(columns=['id', 'category', 'name', 'value', 'weight', 'is_enabled', 'description'])
+        return pd.DataFrame(columns=['id', 'category', 'name', 'value', 'weight', 'is_enabled'])
 
 def get_constraints_by_category(category):
     """
@@ -235,7 +235,7 @@ def get_constraints_by_category(category):
     try:
         conn = get_db_connection()
         query = """
-        SELECT id, category, name, value, weight, is_enabled, description
+        SELECT id, category, name, value, weight, is_enabled
         FROM constraints
         WHERE category = ?
         ORDER BY name
@@ -246,7 +246,7 @@ def get_constraints_by_category(category):
     except Exception as e:
         logger.error(f"Error getting constraints for category '{category}': {str(e)}")
         # Return empty DataFrame on error
-        return pd.DataFrame(columns=['id', 'category', 'name', 'value', 'weight', 'is_enabled', 'description'])
+        return pd.DataFrame(columns=['id', 'category', 'name', 'value', 'weight', 'is_enabled'])
 
 def update_constraint(constraint_id, value, weight, is_enabled):
     """

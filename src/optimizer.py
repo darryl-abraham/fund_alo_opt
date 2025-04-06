@@ -461,31 +461,45 @@ def optimize_fund_allocation(
             logger.warning(f"No optimal solution found. Solver status: {status}")
             return pd.DataFrame()
         
-        # Collect results
-        results = [(bank, term, int(var.solution_value()), 
-                   filtered_rates[(filtered_rates["Bank Name"] == bank) & 
-                               (filtered_rates["CD Term"] == term)]["CD Rate"].values[0])
-                  for (bank, term), var in allocation.items() 
-                  if var.solution_value() > 0]
+        # Create results list with separate calculations
+        results = []
+        for (bank, term), var in allocation.items():
+            if var.solution_value() > 0:
+                allocated_amount = int(var.solution_value())
+                cd_rate = filtered_rates[(filtered_rates["Bank Name"] == bank) & 
+                                      (filtered_rates["CD Term"] == term)]["CD Rate"].values[0]
+                term_months = float(term.split()[0])
+                expected_return = (allocated_amount * cd_rate * term_months) / (100 * 12)
+                
+                results.append([
+                    bank,
+                    term,
+                    allocated_amount,
+                    cd_rate,
+                    expected_return
+                ])
                   
         if not results:
             logger.warning("Optimization completed but no funds were allocated")
             return pd.DataFrame()
             
-        # Create results DataFrame
-        df = pd.DataFrame(results, columns=["Bank Name", "CD Term", "Allocated Amount", "CD Rate"])
-        df["Expected Return"] = (df["Allocated Amount"] * df["CD Rate"]) / 100
+        # Create DataFrame with explicit column names
+        columns = ["Bank Name", "CD Term", "Allocated Amount", "CD Rate", "Expected Return"]
+        df = pd.DataFrame(results, columns=columns)
         
         # Add summary row
-        summary = pd.DataFrame({
-            "Bank Name": ["TOTAL"],
-            "CD Term": [""],
-            "Allocated Amount": [df["Allocated Amount"].sum()],
-            "CD Rate": [None],
-            "Expected Return": [df["Expected Return"].sum()]
-        })
+        summary_row = pd.DataFrame([[
+            "TOTAL",
+            "",
+            df["Allocated Amount"].sum(),
+            None,
+            df["Expected Return"].sum()
+        ]], columns=columns)
         
-        return pd.concat([df, summary], ignore_index=True)
+        # Combine results with summary
+        final_df = pd.concat([df, summary_row], ignore_index=True)
+        
+        return final_df
         
     except Exception as e:
         logger.error(f"Optimization error: {str(e)}")
@@ -526,7 +540,7 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
         WHERE {TestDataColumns.ASSOCIATION_NAME} = '{association_name}'
         """
         balance_df = execute_sql_query(query)
-        total_funds = float(balance_df['total_balance'].iloc[0]) if not balance_df.empty else 0
+        total_funds = float(balance_df['total_balance'].iloc[0] or 0) if not balance_df.empty else 0
         
         if total_funds <= 0:
             return {
