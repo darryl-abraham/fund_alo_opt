@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Analysis Dashboard - Fund Allocation Optimizer{% endblock %}
+
+{% block extra_css %}
+<style>
+    .metric-card {
+        transition: all 0.3s ease;
+        border-left: 4px solid transparent;
+    }
+    .metric-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .metric-card.warning {
+        border-left-color: #ffc107;
+    }
+    .metric-card.danger {
+        border-left-color: #dc3545;
+    }
+    .metric-card.success {
+        border-left-color: #28a745;
+    }
+    .metric-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+    }
+    .metric-change {
+        font-size: 0.9rem;
+    }
+    .metric-change.positive {
+        color: #28a745;
+    }
+    .metric-change.negative {
+        color: #dc3545;
+    }
+    .chart-container {
+        height: 300px;
+        margin-bottom: 2rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-3">
+        {% include "admin/sidebar.html" %}
+    </div>
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-graph-up"></i> Analysis Dashboard</h4>
+            </div>
+            <div class="card-body">
+                <!-- Summary Metrics -->
+                <div class="row mb-4">
+                    <div class="col-md-6 col-lg-3 mb-3">
+                        <div class="card metric-card warning">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted">Non-Partner Bank Funds</h6>
+                                <div class="metric-value">${{ "%.1f"|format(non_partner_funds/1000000) }}M</div>
+                                <div class="metric-change {% if non_partner_change > 0 %}negative{% else %}positive{% endif %}">
+                                    <i class="bi bi-arrow-{{ non_partner_change_direction }}"></i>
+                                    {{ "%.1f"|format(non_partner_change_display) }}%
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-3">
+                        <div class="card metric-card danger">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted">Underperforming Funds</h6>
+                                <div class="metric-value">${{ "%.1f"|format(underperforming_funds/1000000) }}M</div>
+                                <div class="metric-change {% if underperforming_change > 0 %}negative{% else %}positive{% endif %}">
+                                    <i class="bi bi-arrow-{{ underperforming_change_direction }}"></i>
+                                    {{ "%.1f"|format(underperforming_change_display) }}%
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-3">
+                        <div class="card metric-card success">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted">Average Rate</h6>
+                                <div class="metric-value">{{ "%.2f"|format(average_rate) }}%</div>
+                                <div class="metric-change {% if rate_change > 0 %}positive{% else %}negative{% endif %}">
+                                    <i class="bi bi-arrow-{{ rate_change_direction }}"></i>
+                                    {{ "%.2f"|format(rate_change_display) }}%
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-3">
+                        <div class="card metric-card success">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted">Potential Rate Increase</h6>
+                                <div class="metric-value">{{ "%.2f"|format(potential_rate_increase) }}%</div>
+                                <div class="text-muted small">
+                                    If optimally allocated
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rate Performance Analysis -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-graph-up"></i> Rate Performance Analysis</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container mb-4">
+                            <canvas id="ratePerformanceChart"></canvas>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Term</th>
+                                        <th>Current Average Rate</th>
+                                        <th>Best Available Rate</th>
+                                        <th>Funds at Lower Rates</th>
+                                        <th>Potential Annual Increase</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for term in rate_analysis %}
+                                    <tr>
+                                        <td>{{ term.name }}</td>
+                                        <td>{{ "%.2f"|format(term.current_avg_rate) }}%</td>
+                                        <td>{{ "%.2f"|format(term.best_rate) }}%</td>
+                                        <td>${{ "%.1f"|format(term.underperforming_funds/1000000) }}M</td>
+                                        <td>${{ "%.1f"|format(term.potential_increase/1000000) }}M</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Maturity Analysis -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-calendar"></i> Maturity Analysis</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="maturityChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Non-Partner Bank Distribution Chart
+    new Chart(document.getElementById('nonPartnerChart'), {
+        type: 'bar',
+        data: {
+            labels: {{ non_partner_chart.labels|tojson }},
+            datasets: [{
+                label: 'Current Balance',
+                data: {{ non_partner_chart.balances|tojson }},
+                backgroundColor: 'rgba(255, 193, 7, 0.5)',
+                borderColor: 'rgba(255, 193, 7, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + value/1000000 + 'M';
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Rate Performance Chart
+    new Chart(document.getElementById('ratePerformanceChart'), {
+        type: 'line',
+        data: {
+            labels: {{ rate_chart.labels|tojson }},
+            datasets: [{
+                label: 'Current Average Rate',
+                data: {{ rate_chart.current_rates|tojson }},
+                borderColor: 'rgba(220, 53, 69, 1)',
+                backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                fill: true
+            }, {
+                label: 'Best Available Rate',
+                data: {{ rate_chart.best_rates|tojson }},
+                borderColor: 'rgba(40, 167, 69, 1)',
+                backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return value + '%';
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Maturity Distribution Chart
+    new Chart(document.getElementById('maturityChart'), {
+        type: 'bar',
+        data: {
+            labels: {{ maturity_chart.labels|tojson }},
+            datasets: [{
+                label: 'Maturing Funds',
+                data: {{ maturity_chart.amounts|tojson }},
+                backgroundColor: 'rgba(0, 123, 255, 0.5)',
+                borderColor: 'rgba(0, 123, 255, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + value/1000000 + 'M';
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %} 
