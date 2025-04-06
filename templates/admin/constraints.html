@@ -12,6 +12,18 @@
     }
     .constraint-card.disabled {
         opacity: 0.6;
+        background-color: #f8f9fa;
+    }
+    .category-card.disabled {
+        opacity: 0.6;
+        background-color: #f8f9fa;
+    }
+    .category-card.disabled .constraint-card {
+        opacity: 0.6;
+        background-color: #f8f9fa;
+    }
+    .category-card.disabled .category-weight-container {
+        opacity: 0.6;
     }
     .reset-btn {
         position: absolute;
@@ -50,6 +62,25 @@
         text-align: center;
         font-weight: bold;
     }
+    .constraint-value-container {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .constraint-value-label {
+        margin-right: 15px;
+        font-weight: bold;
+        min-width: 100px;
+    }
+    .constraint-value-slider {
+        flex-grow: 1;
+        margin-right: 10px;
+    }
+    .constraint-value-display {
+        min-width: 40px;
+        text-align: center;
+        font-weight: bold;
+    }
 </style>
 {% endblock %}
 
@@ -75,22 +106,23 @@
                 </div>
                 
                 <!-- Product Selection -->
-                <div class="card mb-4">
+                <div class="card mb-4 category-card {% if product_category_weight == 0 %}disabled{% endif %}" id="product_category_card">
                     <div class="card-header bg-success text-white position-relative">
                         <h5 class="mb-0"><i class="bi bi-basket"></i> Product Selection</h5>
-                        <button type="button" class="btn btn-sm btn-outline-light reset-btn category-reset-btn" data-category="product">
-                            <i class="bi bi-arrow-repeat"></i> Reset
-                        </button>
+                        <div class="form-check form-switch position-absolute" style="right: 10px; top: 10px;">
+                            <input class="form-check-input category-toggle" type="checkbox" id="product_category_toggle" 
+                                   data-category="product" {% if product_category_weight > 0 %}checked{% endif %}>
+                            <label class="form-check-label text-white" for="product_category_toggle">Enable</label>
+                        </div>
                     </div>
                     <div class="card-body">
                         <!-- Category Weight Slider -->
                         <div class="category-weight-container">
                             <span class="category-weight-label">Category Weight:</span>
                             <input type="range" class="form-range category-weight-slider" id="product_category_weight" 
-                                   name="category_weight" min="0" max="5" step="0.1" value="{{ product_category_weight }}">
-                            <span class="category-weight-value" id="product_weight_display">{{ product_category_weight }}</span>
-                            <button type="button" class="btn btn-sm btn-outline-success ms-2 update-category-weight-btn" 
-                                    data-category="product">Update</button>
+                                   name="category_weight" min="0" max="100" step="1" value="{{ product_category_weight * 100 }}"
+                                   {% if product_category_weight == 0 %}disabled{% endif %}>
+                            <span class="category-weight-value" id="product_weight_display">{{ "%.0f%%"|format(product_category_weight * 100) }}</span>
                         </div>
                         
                         <div class="row">
@@ -110,17 +142,15 @@
                                                 </label>
                                             </div>
                                             
-                                            <div class="mb-2">
-                                                <label for="value_{{ product.id }}" class="form-label">Value: <span class="value-display">{{ product.value }}</span></label>
-                                                <input type="range" class="form-range constraint-slider" id="value_{{ product.id }}" name="value" min="0" max="10" step="0.1" value="{{ product.value }}" {% if not product.is_enabled %}disabled{% endif %}>
+                                            <div class="constraint-value-container">
+                                                <span class="constraint-value-label">Value:</span>
+                                                <input type="range" class="form-range constraint-slider product-value-slider" 
+                                                       id="value_{{ product.id }}" name="value" min="0" max="100" step="1" 
+                                                       value="{{ product.value * 100 }}" {% if not product.is_enabled %}disabled{% endif %}>
+                                                <span class="constraint-value-display">{{ "%.0f%%"|format(product.value * 100) }}</span>
                                             </div>
                                             
-                                            <!-- Removed individual weight slider -->
                                             <input type="hidden" name="weight" value="{{ product_category_weight }}">
-                                            
-                                            <div class="d-grid">
-                                                <button type="button" class="btn btn-sm btn-outline-success update-btn" {% if not product.is_enabled %}disabled{% endif %}>Update</button>
-                                            </div>
                                         </form>
                                     </div>
                                 </div>
@@ -131,22 +161,23 @@
                 </div>
                 
                 <!-- Time Selection -->
-                <div class="card mb-4">
+                <div class="card mb-4 category-card {% if time_category_weight == 0 %}disabled{% endif %}" id="time_category_card">
                     <div class="card-header bg-info text-white position-relative">
                         <h5 class="mb-0"><i class="bi bi-clock"></i> Time Selection</h5>
-                        <button type="button" class="btn btn-sm btn-outline-light reset-btn category-reset-btn" data-category="time">
-                            <i class="bi bi-arrow-repeat"></i> Reset
-                        </button>
+                        <div class="form-check form-switch position-absolute" style="right: 10px; top: 10px;">
+                            <input class="form-check-input category-toggle" type="checkbox" id="time_category_toggle" 
+                                   data-category="time" {% if time_category_weight > 0 %}checked{% endif %}>
+                            <label class="form-check-label text-white" for="time_category_toggle">Enable</label>
+                        </div>
                     </div>
                     <div class="card-body">
                         <!-- Category Weight Slider -->
                         <div class="category-weight-container">
                             <span class="category-weight-label">Category Weight:</span>
                             <input type="range" class="form-range category-weight-slider" id="time_category_weight" 
-                                   name="category_weight" min="0" max="5" step="0.1" value="{{ time_category_weight }}">
-                            <span class="category-weight-value" id="time_weight_display">{{ time_category_weight }}</span>
-                            <button type="button" class="btn btn-sm btn-outline-info ms-2 update-category-weight-btn" 
-                                    data-category="time">Update</button>
+                                   name="category_weight" min="0" max="100" step="1" value="{{ time_category_weight * 100 }}"
+                                   {% if time_category_weight == 0 %}disabled{% endif %}>
+                            <span class="category-weight-value" id="time_weight_display">{{ "%.0f%%"|format(time_category_weight * 100) }}</span>
                         </div>
                         
                         <div class="row">
@@ -166,17 +197,15 @@
                                                 </label>
                                             </div>
                                             
-                                            <div class="mb-2">
-                                                <label for="value_{{ time.id }}" class="form-label">Value: <span class="value-display">{{ time.value }}</span></label>
-                                                <input type="range" class="form-range constraint-slider" id="value_{{ time.id }}" name="value" min="0" max="10" step="0.1" value="{{ time.value }}" {% if not time.is_enabled %}disabled{% endif %}>
+                                            <div class="constraint-value-container">
+                                                <span class="constraint-value-label">Value:</span>
+                                                <input type="range" class="form-range constraint-slider time-value-slider" 
+                                                       id="value_{{ time.id }}" name="value" min="0" max="100" step="1" 
+                                                       value="{{ time.value * 100 }}" {% if not time.is_enabled %}disabled{% endif %}>
+                                                <span class="constraint-value-display">{{ "%.0f%%"|format(time.value * 100) }}</span>
                                             </div>
                                             
-                                            <!-- Removed individual weight slider -->
                                             <input type="hidden" name="weight" value="{{ time_category_weight }}">
-                                            
-                                            <div class="d-grid">
-                                                <button type="button" class="btn btn-sm btn-outline-info update-btn" {% if not time.is_enabled %}disabled{% endif %}>Update</button>
-                                            </div>
                                         </form>
                                     </div>
                                 </div>
@@ -187,22 +216,23 @@
                 </div>
                 
                 <!-- Weighting Factors -->
-                <div class="card mb-4">
+                <div class="card mb-4 category-card {% if weighting_category_weight == 0 %}disabled{% endif %}" id="weighting_category_card">
                     <div class="card-header bg-warning text-dark position-relative">
                         <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Weighting Factors</h5>
-                        <button type="button" class="btn btn-sm btn-outline-dark reset-btn category-reset-btn" data-category="weighting">
-                            <i class="bi bi-arrow-repeat"></i> Reset
-                        </button>
+                        <div class="form-check form-switch position-absolute" style="right: 10px; top: 10px;">
+                            <input class="form-check-input category-toggle" type="checkbox" id="weighting_category_toggle" 
+                                   data-category="weighting" {% if weighting_category_weight > 0 %}checked{% endif %}>
+                            <label class="form-check-label text-dark" for="weighting_category_toggle">Enable</label>
+                        </div>
                     </div>
                     <div class="card-body">
                         <!-- Category Weight Slider -->
                         <div class="category-weight-container">
                             <span class="category-weight-label">Category Weight:</span>
                             <input type="range" class="form-range category-weight-slider" id="weighting_category_weight" 
-                                   name="category_weight" min="0" max="5" step="0.1" value="{{ weighting_category_weight }}">
-                            <span class="category-weight-value" id="weighting_weight_display">{{ weighting_category_weight }}</span>
-                            <button type="button" class="btn btn-sm btn-outline-warning ms-2 update-category-weight-btn" 
-                                    data-category="weighting">Update</button>
+                                   name="category_weight" min="0" max="100" step="1" value="{{ weighting_category_weight * 100 }}"
+                                   {% if weighting_category_weight == 0 %}disabled{% endif %}>
+                            <span class="category-weight-value" id="weighting_weight_display">{{ "%.0f%%"|format(weighting_category_weight * 100) }}</span>
                         </div>
                         
                         <div class="alert alert-info">
@@ -213,7 +243,7 @@
                             <div class="col-md-6 mb-3">
                                 <div class="card constraint-card weight {% if not weight.is_enabled %}disabled{% endif %}" data-id="{{ weight.id }}">
                                     <div class="card-body">
-                                        <form method="post" action="{{ url_for('admin_update_constraint') }}" id="form_{{ weight.id }}" onsubmit="return false;">
+                                        <form method="post" action="{{ url_for('admin_update_constraint') }}" onsubmit="return false;">
                                             <input type="hidden" name="id" value="{{ weight.id }}">
                                             <input type="hidden" name="category" value="{{ weight.category }}">
                                             
@@ -225,26 +255,21 @@
                                                 </label>
                                             </div>
                                             
-                                            <div class="mb-2 linked-slider-container">
-                                                <label for="value_{{ weight.id }}" class="form-label">Value (0-1): <span class="value-display">{{ weight.value }}</span></label>
+                                            <div class="constraint-value-container">
+                                                <span class="constraint-value-label">Value:</span>
                                                 <input type="range" class="form-range constraint-slider weighting-slider" 
                                                        id="value_{{ weight.id }}" 
                                                        name="value" 
                                                        min="0" 
-                                                       max="1" 
-                                                       step="0.01" 
-                                                       value="{{ weight.value }}" 
+                                                       max="100" 
+                                                       step="1" 
+                                                       value="{{ weight.value * 100 }}" 
                                                        data-weight-name="{{ weight.name }}"
                                                        {% if not weight.is_enabled %}disabled{% endif %}>
-                                                <div class="linked-slider-hint">Linked with other weighting factor</div>
+                                                <span class="constraint-value-display">{{ "%.0f%%"|format(weight.value * 100) }}</span>
                                             </div>
                                             
-                                            <!-- Removed individual weight slider -->
                                             <input type="hidden" name="weight" value="{{ weighting_category_weight }}">
-                                            
-                                            <div class="d-grid">
-                                                <button type="button" class="btn btn-sm btn-outline-warning update-btn" {% if not weight.is_enabled %}disabled{% endif %}>Update</button>
-                                            </div>
                                         </form>
                                     </div>
                                 </div>
@@ -255,22 +280,23 @@
                 </div>
                 
                 <!-- Bank Prioritization -->
-                <div class="card mb-4">
+                <div class="card mb-4 category-card {% if bank_category_weight == 0 %}disabled{% endif %}" id="bank_category_card">
                     <div class="card-header bg-secondary text-white position-relative">
                         <h5 class="mb-0"><i class="bi bi-bank"></i> Bank Prioritization</h5>
-                        <button type="button" class="btn btn-sm btn-outline-light reset-btn category-reset-btn" data-category="bank">
-                            <i class="bi bi-arrow-repeat"></i> Reset
-                        </button>
+                        <div class="form-check form-switch position-absolute" style="right: 10px; top: 10px;">
+                            <input class="form-check-input category-toggle" type="checkbox" id="bank_category_toggle" 
+                                   data-category="bank" {% if bank_category_weight > 0 %}checked{% endif %}>
+                            <label class="form-check-label text-white" for="bank_category_toggle">Enable</label>
+                        </div>
                     </div>
                     <div class="card-body">
                         <!-- Category Weight Slider -->
                         <div class="category-weight-container">
                             <span class="category-weight-label">Category Weight:</span>
                             <input type="range" class="form-range category-weight-slider" id="bank_category_weight" 
-                                   name="category_weight" min="0" max="5" step="0.1" value="{{ bank_category_weight }}">
-                            <span class="category-weight-value" id="bank_weight_display">{{ bank_category_weight }}</span>
-                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2 update-category-weight-btn" 
-                                    data-category="bank">Update</button>
+                                   name="category_weight" min="0" max="100" step="1" value="{{ bank_category_weight * 100 }}"
+                                   {% if bank_category_weight == 0 %}disabled{% endif %}>
+                            <span class="category-weight-value" id="bank_weight_display">{{ "%.0f%%"|format(bank_category_weight * 100) }}</span>
                         </div>
                         
                         <div class="row">
@@ -290,17 +316,15 @@
                                                 </label>
                                             </div>
                                             
-                                            <div class="mb-2">
-                                                <label for="value_{{ bank.id }}" class="form-label">Value: <span class="value-display">{{ bank.value }}</span></label>
-                                                <input type="range" class="form-range constraint-slider" id="value_{{ bank.id }}" name="value" min="0" max="10" step="0.1" value="{{ bank.value }}" {% if not bank.is_enabled %}disabled{% endif %}>
+                                            <div class="constraint-value-container">
+                                                <span class="constraint-value-label">Value:</span>
+                                                <input type="range" class="form-range constraint-slider bank-value-slider" 
+                                                       id="value_{{ bank.id }}" name="value" min="0" max="100" step="1" 
+                                                       value="{{ bank.value * 100 }}" {% if not bank.is_enabled %}disabled{% endif %}>
+                                                <span class="constraint-value-display">{{ "%.0f%%"|format(bank.value * 100) }}</span>
                                             </div>
                                             
-                                            <!-- Removed individual weight slider -->
                                             <input type="hidden" name="weight" value="{{ bank_category_weight }}">
-                                            
-                                            <div class="d-grid">
-                                                <button type="button" class="btn btn-sm btn-outline-secondary update-btn" {% if not bank.is_enabled %}disabled{% endif %}>Update</button>
-                                            </div>
                                         </form>
                                     </div>
                                 </div>
@@ -310,8 +334,75 @@
                     </div>
                 </div>
                 
+                <!-- Liquidity Constraints -->
+                <div class="card mb-4 category-card {% if liquidity_category_weight == 0 %}disabled{% endif %}" id="liquidity_category_card">
+                    <div class="card-header bg-info text-white position-relative">
+                        <h5 class="mb-0"><i class="bi bi-droplet"></i> Liquidity Constraints</h5>
+                        <div class="form-check form-switch position-absolute" style="right: 10px; top: 10px;">
+                            <input class="form-check-input category-toggle" type="checkbox" id="liquidity_category_toggle" 
+                                   data-category="liquidity" {% if liquidity_category_weight > 0 %}checked{% endif %}>
+                            <label class="form-check-label text-white" for="liquidity_category_toggle">Enable</label>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Category Weight Slider -->
+                        <div class="category-weight-container">
+                            <span class="category-weight-label">Category Weight:</span>
+                            <input type="range" class="form-range category-weight-slider" id="liquidity_category_weight" 
+                                   name="category_weight" min="0" max="100" step="1" value="{{ liquidity_category_weight * 100 }}"
+                                   {% if liquidity_category_weight == 0 %}disabled{% endif %}>
+                            <span class="category-weight-value" id="liquidity_weight_display">{{ "%.0f%%"|format(liquidity_category_weight * 100) }}</span>
+                        </div>
+                        
+                        <div class="row">
+                            {% for constraint in liquidity.itertuples() %}
+                            <div class="col-md-6 mb-3">
+                                <div class="card constraint-card liquidity {% if not constraint.is_enabled %}disabled{% endif %}" data-id="{{ constraint.id }}">
+                                    <div class="card-body">
+                                        <form method="post" action="{{ url_for('admin_update_constraint') }}" onsubmit="return false;" class="liquidity-form">
+                                            <input type="hidden" name="id" value="{{ constraint.id }}">
+                                            <input type="hidden" name="category" value="{{ constraint.category }}">
+                                            <input type="hidden" name="weight" value="{{ liquidity_category_weight }}">
+                                            
+                                            <div class="form-check form-switch mb-2">
+                                                <input type="hidden" name="is_enabled" value="0">
+                                                <input class="form-check-input constraint-toggle" type="checkbox" 
+                                                       id="enable_{{ constraint.id }}" name="is_enabled" value="1" 
+                                                       {% if constraint.is_enabled %}checked{% endif %}>
+                                                <label class="form-check-label" for="enable_{{ constraint.id }}">
+                                                    <strong>{{ constraint.name }}</strong>
+                                                </label>
+                                            </div>
+                                            
+                                            <div class="constraint-value-container">
+                                                <span class="constraint-value-label">Reserve Percentage:</span>
+                                                <input type="range" class="form-range liquidity-slider" name="display_value" 
+                                                       min="0" max="100" step="1" value="{{ constraint.value * 100 }}"
+                                                       {% if not constraint.is_enabled %}disabled{% endif %}>
+                                                <span class="constraint-value-display">{{ "%.0f%%"|format(constraint.value * 100) }}</span>
+                                            </div>
+
+                                            <input type="hidden" name="value" value="{{ constraint.value }}">
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Save All Changes -->
+                <div class="card mt-4">
+                    <div class="card-body text-center">
+                        <button type="button" class="btn btn-primary btn-lg save-all-changes">
+                            <i class="bi bi-save"></i> Save All Changes
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Reset All Constraints -->
-                <div class="card">
+                <div class="card mt-4">
                     <div class="card-header bg-danger text-white">
                         <h5 class="mb-0"><i class="bi bi-arrow-repeat"></i> Reset All Constraints</h5>
                     </div>
@@ -331,191 +422,154 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Update value displays when sliders change
-    const valueSliders = document.querySelectorAll('input[name="value"]');
-    valueSliders.forEach(slider => {
-        const display = slider.parentElement.querySelector('.value-display');
-        slider.addEventListener('input', function() {
-            display.textContent = this.value;
-        });
-    });
-    
-    // Update category weight displays when category sliders change
-    const categoryWeightSliders = document.querySelectorAll('.category-weight-slider');
-    categoryWeightSliders.forEach(slider => {
-        const display = document.getElementById(slider.id.replace('category_weight', 'weight_display'));
-        slider.addEventListener('input', function() {
-            // Update the display value immediately when slider moves
-            if (display) {
-                display.textContent = this.value;
+    // Handle category toggles
+    const categoryToggles = document.querySelectorAll('.category-toggle');
+    categoryToggles.forEach(toggle => {
+        toggle.addEventListener('change', function() {
+            const category = this.dataset.category;
+            const categoryCard = document.getElementById(`${category}_category_card`);
+            const slider = document.getElementById(`${category}_category_weight`);
+            const display = document.getElementById(`${category}_weight_display`);
+            
+            if (this.checked) {
+                // Enable the category
+                categoryCard.classList.remove('disabled');
+                slider.disabled = false;
+                if (slider.value === '0') {
+                    // Calculate default value based on other enabled sliders
+                    const enabledSliders = getEnabledCategorySliders();
+                    const totalValue = enabledSliders.reduce((sum, s) => sum + parseFloat(s.value), 0);
+                    const defaultValue = Math.round((100 - totalValue) / (enabledSliders.length + 1));
+                    slider.value = defaultValue;
+                    display.textContent = defaultValue + '%';
+                    // Redistribute other sliders
+                    updateLinkedCategoryWeights();
+                }
+            } else {
+                // Disable the category
+                categoryCard.classList.add('disabled');
+                slider.disabled = true;
+                slider.value = '0';
+                display.textContent = '0%';
+                // Redistribute other sliders
+                updateLinkedCategoryWeights();
             }
-            
-            // Update all hidden weight inputs in this category
-            const categoryName = this.id.split('_')[0];
-            const hiddenWeightInputs = document.querySelectorAll(`form[action*="admin_update_constraint"] input[name="weight"]`);
-            hiddenWeightInputs.forEach(input => {
-                const form = input.closest('form');
-                const formCategory = form.querySelector('input[name="category"]').value;
-                if (formCategory === categoryName) {
-                    input.value = this.value;
-                }
-            });
         });
     });
-    
-    // Handle category weight update buttons
-    const categoryWeightButtons = document.querySelectorAll('.update-category-weight-btn');
-    categoryWeightButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const category = this.getAttribute('data-category');
-            const weightValue = document.getElementById(category + '_category_weight').value;
-            
-            // Create and submit a form to update all weights in this category
-            fetch('{{ url_for("admin_update_category_weight") }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `category=${category}&weight=${weightValue}`
-            })
-            .then(response => {
-                if (response.ok) {
-                    // Show success feedback
-                    const originalText = this.textContent;
-                    const originalClasses = [...this.classList];
-                    
-                    this.textContent = '✓ Updated';
-                    this.classList.add('btn-success');
-                    this.classList.remove('btn-outline-success', 'btn-outline-info', 'btn-outline-warning', 'btn-outline-secondary');
-                    
-                    setTimeout(() => {
-                        this.textContent = originalText;
-                        this.className = originalClasses.join(' '); // Restore all original classes
-                    }, 1500);
-                } else {
-                    console.error('Update failed');
-                    alert('Failed to update category weight. Please try again.');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Error updating category weight. Please try again.');
-            });
+
+    // Function to get enabled category sliders (excluding liquidity)
+    const getEnabledCategorySliders = () => {
+        const categorySliders = document.querySelectorAll('.category-weight-slider');
+        return Array.from(categorySliders).filter(slider => {
+            const category = slider.id.split('_')[0];
+            return category !== 'liquidity' && !slider.disabled;
         });
-    });
-    
-    // Handle all constraint form update buttons using event delegation
-    document.addEventListener('click', function(e) {
-        // Check if the clicked element is an update button
-        if (e.target.classList.contains('update-btn')) {
-            const button = e.target;
-            const form = button.closest('form');
-            const card = button.closest('.constraint-card');
-            
-            // Prevent default button behavior
-            e.preventDefault();
-            
-            // Create form data from the form
-            const formData = new FormData(form);
-            
-            // Submit the form data via fetch
-            fetch(form.action, {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                if (response.ok) {
-                    // On success, show a brief visual feedback
-                    const originalText = button.textContent;
-                    const originalClasses = [...button.classList];
-                    
-                    // Change button appearance to indicate success
-                    button.textContent = '✓ Updated';
-                    button.classList.add('btn-success');
-                    button.classList.remove('btn-outline-success', 'btn-outline-info', 'btn-outline-warning', 'btn-outline-secondary');
-                    
-                    // Restore button after a delay
-                    setTimeout(() => {
-                        button.textContent = originalText;
-                        button.className = originalClasses.join(' '); // Restore all original classes
-                    }, 1500);
+    };
+
+    // Function to update linked category weights
+    const updateLinkedCategoryWeights = () => {
+        const enabledSliders = getEnabledCategorySliders();
+        if (enabledSliders.length === 0) return;
+
+        // Calculate total of all enabled sliders
+        const total = enabledSliders.reduce((sum, slider) => sum + parseFloat(slider.value), 0);
+        
+        // If total is not 100, adjust values proportionally
+        if (total !== 100) {
+            enabledSliders.forEach(slider => {
+                const currentValue = parseFloat(slider.value);
+                let newValue;
+                if (total === 0) {
+                    // If total is 0, distribute evenly
+                    newValue = Math.round(100 / enabledSliders.length);
                 } else {
-                    console.error('Update failed');
-                    alert('Failed to update constraint. Please try again.');
+                    // Otherwise, adjust proportionally
+                    newValue = Math.round((currentValue / total) * 100);
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Error updating constraint. Please try again.');
+                slider.value = newValue;
+                
+                // Update display
+                const display = document.getElementById(slider.id.replace('category_weight', 'weight_display'));
+                if (display) {
+                    display.textContent = newValue + '%';
+                }
             });
         }
-    });
-    
-    // Handle toggle switches
-    const toggles = document.querySelectorAll('.constraint-toggle');
-    toggles.forEach(toggle => {
-        // Get the original form and create a clone for toggle operations
-        const originalForm = toggle.closest('form');
-        const toggleForm = originalForm.cloneNode(true);
-        toggleForm.style.display = 'none';
-        document.body.appendChild(toggleForm);
-        
-        // Set up the toggle event handler
-        toggle.addEventListener('change', function() {
-            const card = this.closest('.constraint-card');
-            const formControls = originalForm.querySelectorAll('input[type="range"], .update-btn');
-            const isChecked = this.checked;
-            
-            // Update UI based on toggle state
-            if (isChecked) {
-                card.classList.remove('disabled');
-                formControls.forEach(control => control.disabled = false);
-            } else {
-                card.classList.add('disabled');
-                formControls.forEach(control => control.disabled = true);
+    };
+
+    // Add event listeners to category weight sliders
+    const categoryWeightSliders = document.querySelectorAll('.category-weight-slider');
+    categoryWeightSliders.forEach(slider => {
+        slider.addEventListener('input', function() {
+            const display = document.getElementById(this.id.replace('category_weight', 'weight_display'));
+            if (display) {
+                display.textContent = this.value + '%';
             }
-            
-            // Prepare the toggle form submission
-            const toggleFormCheckbox = toggleForm.querySelector('.constraint-toggle');
-            toggleFormCheckbox.checked = isChecked;
-            
-            // Submit the toggle form
-            fetch(toggleForm.action, {
-                method: 'POST',
-                body: new FormData(toggleForm)
-            })
-            .then(response => {
-                if (!response.ok) {
-                    console.error('Toggle update failed');
-                    // Revert UI on failure
-                    this.checked = !isChecked;
-                    if (!isChecked) {
-                        card.classList.remove('disabled');
-                        formControls.forEach(control => control.disabled = false);
-                    } else {
-                        card.classList.add('disabled');
-                        formControls.forEach(control => control.disabled = true);
-                    }
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                // Revert UI on error
-                this.checked = !isChecked;
-                if (!isChecked) {
-                    card.classList.remove('disabled');
-                    formControls.forEach(control => control.disabled = false);
-                } else {
-                    card.classList.add('disabled');
-                    formControls.forEach(control => control.disabled = true);
-                }
-            });
+            if (this.id.split('_')[0] !== 'liquidity') {  // Only link non-liquidity sliders
+                updateLinkedCategoryWeights();
+            }
         });
     });
-    
-    // Special handling for weighting sliders to ensure they sum to 1.0
+
+    // Initialize category weights to ensure they sum to 100
+    updateLinkedCategoryWeights();
+
+    // Link value sliders within each category
+    const linkCategoryValueSliders = (category) => {
+        const sliders = document.querySelectorAll(`.${category}-value-slider`);
+        const updateLinkedValues = (changedSlider) => {
+            const otherSliders = Array.from(sliders).filter(s => s !== changedSlider);
+            const otherTotal = otherSliders.reduce((sum, slider) => sum + parseFloat(slider.value), 0);
+            const remaining = 100 - parseFloat(changedSlider.value);
+            
+            if (otherTotal > 0) {
+                otherSliders.forEach(slider => {
+                    const currentValue = parseFloat(slider.value);
+                    const newValue = Math.round((currentValue / otherTotal) * remaining);
+                    slider.value = newValue;
+                    
+                    const display = slider.parentElement.querySelector('.constraint-value-display');
+                    if (display) {
+                        display.textContent = newValue + '%';
+                    }
+                });
+            }
+        };
+        
+        sliders.forEach(slider => {
+            slider.addEventListener('input', function() {
+                const display = this.parentElement.querySelector('.constraint-value-display');
+                if (display) {
+                    display.textContent = this.value + '%';
+                }
+                updateLinkedValues(this);
+            });
+        });
+    };
+
+    // Link value sliders for each category
+    linkCategoryValueSliders('product');
+    linkCategoryValueSliders('time');
+    linkCategoryValueSliders('bank');
+
+    // Special handling for liquidity sliders
+    const liquiditySliders = document.querySelectorAll('.liquidity-slider');
+    liquiditySliders.forEach(slider => {
+        slider.addEventListener('input', function() {
+            const display = this.parentElement.querySelector('.constraint-value-display');
+            if (display) {
+                display.textContent = this.value + '%';
+            }
+            // Update hidden value field
+            const hiddenValue = this.form.querySelector('input[name="value"]');
+            if (hiddenValue) {
+                hiddenValue.value = parseFloat(this.value) / 100;
+            }
+        });
+    });
+
+    // Special handling for weighting sliders
     const weightingSliders = document.querySelectorAll('.weighting-slider');
-    
     if (weightingSliders.length === 2) {
         const interestSlider = Array.from(weightingSliders).find(slider => 
             slider.getAttribute('data-weight-name') === 'Interest Rates');
@@ -525,10 +579,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (interestSlider && ecrSlider) {
             const updateLinkedSlider = (primarySlider, secondarySlider) => {
                 const primaryValue = parseFloat(primarySlider.value);
-                const newSecondaryValue = Math.round((1 - primaryValue) * 100) / 100; // Round to 2 decimal places
-                
+                const newSecondaryValue = Math.round((1 - primaryValue) * 100) / 100;
                 secondarySlider.value = newSecondaryValue;
-                // Make sure to update the displayed value in the UI
                 const displayElement = secondarySlider.parentElement.querySelector('.value-display');
                 if (displayElement) {
                     displayElement.textContent = newSecondaryValue;
@@ -542,234 +594,69 @@ document.addEventListener('DOMContentLoaded', function() {
             ecrSlider.addEventListener('input', function() {
                 updateLinkedSlider(this, interestSlider);
             });
-            
-            // Add click handlers to update buttons to ensure linked values are updated
-            const interestForm = interestSlider.closest('form');
-            const ecrForm = ecrSlider.closest('form');
-            const interestBtn = interestForm.querySelector('.update-btn');
-            const ecrBtn = ecrForm.querySelector('.update-btn');
-            
-            // When interest rate form is submitted, include ECR value
-            interestForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                // Add ECR value as hidden field
-                const hiddenECRInput = document.createElement('input');
-                hiddenECRInput.type = 'hidden';
-                hiddenECRInput.name = 'other_value';
-                hiddenECRInput.value = ecrSlider.value;
-                
-                // Append to form and submit
-                this.appendChild(hiddenECRInput);
-                
-                // Create and submit form data
-                const formData = new FormData(this);
-                fetch(this.action, {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => {
-                    if (response.ok) {
-                        // Success feedback
-                        interestBtn.textContent = '✓ Updated';
-                        interestBtn.classList.add('btn-success');
-                        interestBtn.classList.remove('btn-outline-warning');
-                        
-                        setTimeout(() => {
-                            interestBtn.textContent = 'Update';
-                            interestBtn.classList.remove('btn-success');
-                            interestBtn.classList.add('btn-outline-warning');
-                        }, 1500);
-                    } else {
-                        alert('Failed to update constraint');
-                    }
-                })
-                .catch(err => {
-                    console.error('Error:', err);
-                    alert('Error updating constraint');
-                });
-            });
-            
-            // When ECR form is submitted, include interest rate value
-            ecrForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                // Add interest value as hidden field
-                const hiddenInterestInput = document.createElement('input');
-                hiddenInterestInput.type = 'hidden';
-                hiddenInterestInput.name = 'other_value';
-                hiddenInterestInput.value = interestSlider.value;
-                
-                // Append to form and submit
-                this.appendChild(hiddenInterestInput);
-                
-                // Create and submit form data
-                const formData = new FormData(this);
-                fetch(this.action, {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => {
-                    if (response.ok) {
-                        // Success feedback
-                        ecrBtn.textContent = '✓ Updated';
-                        ecrBtn.classList.add('btn-success');
-                        ecrBtn.classList.remove('btn-outline-warning');
-                        
-                        setTimeout(() => {
-                            ecrBtn.textContent = 'Update';
-                            ecrBtn.classList.remove('btn-success');
-                            ecrBtn.classList.add('btn-outline-warning');
-                        }, 1500);
-                    } else {
-                        alert('Failed to update constraint');
-                    }
-                })
-                .catch(err => {
-                    console.error('Error:', err);
-                    alert('Error updating constraint');
-                });
-            });
         }
     }
-});
 
-// Handle category reset buttons
-const categoryResetButtons = document.querySelectorAll('.category-reset-btn');
-categoryResetButtons.forEach(button => {
-    button.addEventListener('click', function() {
-        const category = this.getAttribute('data-category');
-        
-        // Ask for confirmation before reset
-        const confirmMessage = category === 'all' 
-            ? 'Are you sure you want to reset ALL constraints to default values?' 
-            : `Reset all ${category} constraints to default values?`;
-            
-        if (!confirm(confirmMessage)) {
-            return;
-        }
-        
-        // Show loading state on button
-        const originalText = this.innerHTML;
-        this.innerHTML = '<i class="bi bi-hourglass-split"></i> Resetting...';
+    // Save all changes functionality
+    const saveAllButton = document.querySelector('.save-all-changes');
+    saveAllButton.addEventListener('click', async function() {
         this.disabled = true;
+        this.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
         
-        // Make AJAX request to reset endpoint
-        fetch('{{ url_for("admin_reset_constraints_ajax") }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: `category=${category}`
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Show success feedback
-                this.innerHTML = '<i class="bi bi-check-circle"></i> Reset Complete';
-                setTimeout(() => {
-                    this.innerHTML = originalText;
-                    this.disabled = false;
-                }, 1500);
+        try {
+            // Get all forms
+            const forms = document.querySelectorAll('form[action*="admin_update_constraint"]');
+            const categoryWeights = document.querySelectorAll('.category-weight-slider');
+            
+            // Save category weights first
+            for (const weightSlider of categoryWeights) {
+                const category = weightSlider.id.split('_')[0];
+                const weightValue = parseFloat(weightSlider.value) / 100;
                 
-                // Update the UI with the new values
-                updateUIAfterReset(category, data.data);
-            } else {
-                // Show error and reset button
-                alert(`Error: ${data.message}`);
-                this.innerHTML = originalText;
-                this.disabled = false;
+                await fetch('{{ url_for("admin_update_category_weight") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `category=${category}&weight=${weightValue}`
+                });
             }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Error resetting constraints. Please try again.');
-            this.innerHTML = originalText;
-            this.disabled = false;
-        });
+            
+            // Save all constraint forms
+            for (const form of forms) {
+                const formData = new FormData(form);
+                await fetch(form.action, {
+                    method: 'POST',
+                    body: formData
+                });
+            }
+            
+            // Show success message
+            this.innerHTML = '<i class="bi bi-check-circle"></i> Changes Saved Successfully';
+            this.classList.remove('btn-primary');
+            this.classList.add('btn-success');
+            
+            setTimeout(() => {
+                this.innerHTML = '<i class="bi bi-save"></i> Save All Changes';
+                this.classList.remove('btn-success');
+                this.classList.add('btn-primary');
+                this.disabled = false;
+            }, 2000);
+            
+        } catch (error) {
+            console.error('Error saving changes:', error);
+            this.innerHTML = '<i class="bi bi-x-circle"></i> Error Saving Changes';
+            this.classList.remove('btn-primary');
+            this.classList.add('btn-danger');
+            
+            setTimeout(() => {
+                this.innerHTML = '<i class="bi bi-save"></i> Save All Changes';
+                this.classList.remove('btn-danger');
+                this.classList.add('btn-primary');
+                this.disabled = false;
+            }, 2000);
+        }
     });
 });
-
-// Function to update UI after reset
-function updateUIAfterReset(category, data) {
-    // Update category weight slider
-    if (data.category_weights && category in data.category_weights) {
-        const weightValue = data.category_weights[category];
-        const categoryWeightSlider = document.getElementById(`${category}_category_weight`);
-        const weightDisplay = document.getElementById(`${category}_weight_display`);
-        
-        if (categoryWeightSlider && weightDisplay) {
-            categoryWeightSlider.value = weightValue;
-            weightDisplay.textContent = weightValue;
-        }
-    }
-    
-    // Update constraint values and toggle states
-    if (data.constraints) {
-        data.constraints.forEach(constraint => {
-            // Find the corresponding UI elements
-            const constraintCard = document.querySelector(`.constraint-card[data-id="${constraint.id}"]`);
-            if (constraintCard) {
-                // Update value slider
-                const valueSlider = constraintCard.querySelector('input[name="value"]');
-                const valueDisplay = constraintCard.querySelector('.value-display');
-                if (valueSlider && valueDisplay) {
-                    valueSlider.value = constraint.value;
-                    valueDisplay.textContent = constraint.value;
-                }
-                
-                // Update toggle state
-                const toggle = constraintCard.querySelector('.constraint-toggle');
-                if (toggle) {
-                    const wasEnabled = toggle.checked;
-                    toggle.checked = constraint.is_enabled;
-                    
-                    // Update UI if toggle state changed
-                    if (wasEnabled !== constraint.is_enabled) {
-                        const formControls = constraintCard.querySelectorAll('input[type="range"], .update-btn');
-                        if (constraint.is_enabled) {
-                            constraintCard.classList.remove('disabled');
-                            formControls.forEach(control => control.disabled = false);
-                        } else {
-                            constraintCard.classList.add('disabled');
-                            formControls.forEach(control => control.disabled = true);
-                        }
-                    }
-                }
-                
-                // Update weight value
-                const weightInput = constraintCard.querySelector('input[name="weight"]');
-                if (weightInput) {
-                    weightInput.value = constraint.weight;
-                }
-            }
-        });
-        
-        // Handle special case for weighting constraints (Interest Rates & ECR Return)
-        if (category === 'weighting' || category === 'all') {
-            const weightingSliders = document.querySelectorAll('.weighting-slider');
-            if (weightingSliders.length === 2) {
-                const interestSlider = Array.from(weightingSliders).find(slider => 
-                    slider.getAttribute('data-weight-name') === 'Interest Rates');
-                const ecrSlider = Array.from(weightingSliders).find(slider => 
-                    slider.getAttribute('data-weight-name') === 'ECR Return');
-                
-                if (interestSlider && ecrSlider) {
-                    // Make sure the displayed values are updated
-                    const interestDisplay = interestSlider.parentElement.querySelector('.value-display');
-                    const ecrDisplay = ecrSlider.parentElement.querySelector('.value-display');
-                    
-                    if (interestDisplay) {
-                        interestDisplay.textContent = interestSlider.value;
-                    }
-                    
-                    if (ecrDisplay) {
-                        ecrDisplay.textContent = ecrSlider.value;
-                    }
-                }
-            }
-        }
-    }
-}
 </script>
 {% endblock %} 

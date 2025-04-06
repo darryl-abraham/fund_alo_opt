@@ -292,12 +292,19 @@ def admin_constraints():
         "SELECT * FROM constraints WHERE category = 'bank' ORDER BY name",
         conn
     )
+
+    # Get liquidity constraints
+    liquidity = pd.read_sql_query(
+        "SELECT * FROM constraints WHERE category = 'liquidity' ORDER BY name",
+        conn
+    )
     
-    # Get category weights (use the first constraint's weight as the category weight)
+    # Get category weights
     product_category_weight = products.iloc[0]['weight'] if not products.empty else 1.0
     time_category_weight = times.iloc[0]['weight'] if not times.empty else 1.0
     weighting_category_weight = weightings.iloc[0]['weight'] if not weightings.empty else 1.0
     bank_category_weight = banks.iloc[0]['weight'] if not banks.empty else 1.0
+    liquidity_category_weight = liquidity.iloc[0]['weight'] if not liquidity.empty else 1.0
     
     conn.close()
     
@@ -307,10 +314,12 @@ def admin_constraints():
         times=times,
         weightings=weightings,
         banks=banks,
+        liquidity=liquidity,
         product_category_weight=product_category_weight,
         time_category_weight=time_category_weight,
         weighting_category_weight=weighting_category_weight,
-        bank_category_weight=bank_category_weight
+        bank_category_weight=bank_category_weight,
+        liquidity_category_weight=liquidity_category_weight
     )
 
 @app.route('/admin/constraints/update', methods=['POST'])
@@ -594,6 +603,15 @@ def init_db():
         cursor.executemany(
             "INSERT INTO constraints (category, name, value, weight, is_enabled) VALUES (?, ?, ?, ?, ?)",
             banks
+        )
+
+        # Liquidity constraint - default 30%
+        liquidity = [
+            ('liquidity', 'Reserve Percentage', 0.3, 1.0, 1)  # 30% default
+        ]
+        cursor.executemany(
+            "INSERT INTO constraints (category, name, value, weight, is_enabled) VALUES (?, ?, ?, ?, ?)",
+            liquidity
         )
         
         logger.info("Initialized constraints table with standardized equal values.")

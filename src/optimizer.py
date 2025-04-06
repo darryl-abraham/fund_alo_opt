@@ -267,49 +267,41 @@ def optimize_fund_allocation(
     bank_ranking_df: pd.DataFrame, 
     bank_rates_df: pd.DataFrame, 
     constraints: dict, 
-    total_funds: float, 
     branch_name: str,
     association_name: str,
     time_limit_seconds: int = 30
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, float]:
     """
-    Optimize fund allocation across banks and terms to maximize interest.
-    Only considers banks where the branch has a relationship (value = 1).
-    Uses constraints from the database to guide optimization.
+    Optimize fund allocation across banks and terms using a composite score based on:
+    1. Category weights (sum to 100%) for each constraint category
+    2. Individual constraint values (0-10) within each category
+    3. Weighting factors that sum to 1.0 for interest vs ECR
+    4. Liquidity reserve percentage (0-100%)
     
     Args:
         bank_ranking_df: DataFrame with bank ranking information
         bank_rates_df: DataFrame with rates information
         constraints: Dictionary with optimization constraints from database
-        total_funds: Total funds available for allocation
         branch_name: Name of the branch to optimize for
         association_name: Name of the association to optimize for
         time_limit_seconds: Time limit for the solver in seconds
         
     Returns:
-        DataFrame with optimized allocation results
+        Tuple containing:
+        - DataFrame with optimized allocation results
+        - Float representing total funds available
     """
-    # Create solver
     try:
-        solver = pywraplp.Solver.CreateSolver('SCIP')
+        solver = pywraplp.Solver.CreateSolver('GLOP')
         if not solver:
-            raise Exception("SCIP solver is not available.")
+            raise Exception("GLOP solver is not available.")
             
-        # Set time limit
-        solver.SetTimeLimit(time_limit_seconds * 1000)  # Convert to milliseconds
+        solver.set_time_limit(30000)  # 30 seconds in milliseconds
         
-        # Get default max bank allocation from constraints
+        # Get default max bank allocation
         max_bank_allocation = DEFAULT_MAX_BANK_ALLOCATION
         
-        # Apply bank constraints if available
-        bank_weights = {}
-        if 'bank' in constraints:
-            bank_constraints = constraints['bank']
-            for bank_name, bank_data in bank_constraints.items():
-                if bank_data['enabled']:
-                    bank_weights[bank_name] = bank_data['value'] * bank_data['weight']
-        
-        # Get bank relationships for the specific branch
+        # Get bank relationships and filter rates
         branch_relationships = get_branch_relationships(branch_name)
         if branch_relationships.empty:
             raise ValueError(f"No relationships found for branch: {branch_name}")
@@ -320,28 +312,57 @@ def optimize_fund_allocation(
             if isinstance(bank_col, str) and bank_col != BranchRelationshipsColumns.BRANCH_NAME:
                 try:
                     if branch_relationships[bank_col].iloc[0] == 1:
-                        # Convert column name to proper bank name format
                         bank_name = bank_col.replace('_', ' ').title()
                         related_banks.append(bank_name)
                 except KeyError:
-                    logger.warning(f"Column {bank_col} not found in branch_relationships table")
                     continue
         
         if not related_banks:
             raise ValueError(f"No bank relationships found for branch: {branch_name}")
         
         # Filter bank rates to only include related banks
-        filtered_rates = bank_rates_df[bank_rates_df["Bank Name"].isin(related_banks)]
+        filtered_rates = bank_rates_df[bank_rates_df["Bank Name"].isin(related_banks)].copy()
         
         if filtered_rates.empty:
             raise ValueError(f"No rates found for related banks of branch: {branch_name}")
-            
-        # Apply time constraints if available
-        time_weights = {}
+        
+        # 1. Get and normalize category weights to sum to 100%
+        category_weights = {
+            'product': 0.0,
+            'time': 0.0,
+            'weighting': 0.0,
+            'bank': 0.0,
+            'liquidity': 0.0
+        }
+        
+        # First get raw weights
+        total_weight = 0
+        for category in category_weights:
+            if category in constraints:
+                category_data = constraints[category]
+                if 'weight' in category_data:
+                    weight = category_data['weight']  # This is already a percentage (0-100)
+                    category_weights[category] = weight
+                    total_weight += weight
+        
+        # Then normalize to sum to 100%
+        if total_weight > 0:
+            for category in category_weights:
+                category_weights[category] = category_weights[category] / total_weight
+        
+        # 2. Get bank weights (0-10)
+        bank_weights = {}
+        if 'bank' in constraints:
+            bank_constraints = constraints['bank']
+            for bank_name, bank_data in bank_constraints.items():
+                if bank_data['enabled']:
+                    # Normalize 0-10 to 0-1
+                    bank_weights[bank_name] = bank_data['value'] / 10.0
+        
+        # 3. Get time weights (0-10)
+        filtered_rates['time_weight'] = 1.0  # Default weight
         if 'time' in constraints:
             time_constraints = constraints['time']
-            
-            # Map the constraint names to CD term ranges
             time_mapping = {
                 'Short Term (1-3 months)': (1, 3),
                 'Mid Term (4-6 months)': (4, 6),
@@ -351,91 +372,84 @@ def optimize_fund_allocation(
             for time_name, time_data in time_constraints.items():
                 if time_data['enabled'] and time_name in time_mapping:
                     time_range = time_mapping[time_name]
-                    
-                    # Filter terms in the appropriate range
+                    # Normalize 0-10 to 0-1
+                    weight = time_data['value'] / 10.0
                     term_mask = (filtered_rates["CD Term Num"] >= time_range[0]) & (filtered_rates["CD Term Num"] <= time_range[1])
-                    filtered_rates.loc[term_mask, 'time_weight'] = time_data['value'] * time_data['weight']
-            
-            # Default weight for terms without explicit constraints
-            if 'time_weight' not in filtered_rates.columns:
-                filtered_rates['time_weight'] = 1.0
-            else:
-                filtered_rates['time_weight'].fillna(1.0, inplace=True)
-        else:
-            filtered_rates['time_weight'] = 1.0
-            
-        # Apply product constraints if available
-        # Note: This implementation focuses on CD products only since that's what the optimizer handles
-        if 'product' in constraints and 'CD' in constraints['product']:
-            cd_constraint = constraints['product']['CD']
-            if not cd_constraint['enabled']:
-                raise ValueError("CD product type is disabled in constraints")
-                
-        # Create variables for allocation
-        allocation = {}
-        for bank in related_banks:
-            bank_subset = filtered_rates[filtered_rates["Bank Name"] == bank]
-            bank_weight = bank_weights.get(bank, 1.0)
-            
-            for _, row in bank_subset.iterrows():
-                term = row["CD Term"]
-                time_weight = row.get('time_weight', 1.0)
-                allocation[(bank, term)] = solver.IntVar(0, solver.infinity(), f'alloc_{bank}_{term}')
+                    filtered_rates.loc[term_mask, 'time_weight'] = weight
         
-        # Add total funds constraint
-        solver.Add(sum(allocation.values()) <= total_funds)
-        
-        # Add bank maximum allocation constraint
-        for bank in related_banks:
-            vars_to_sum = [var for (b, _), var in allocation.items() if b == bank]
-            if vars_to_sum:
-                solver.Add(sum(vars_to_sum) <= max_bank_allocation)
-        
-        # Set objective function (maximize interest weighted by constraints)
-        objective = solver.Objective()
-        
-        # Get interest rate and ECR weighting if available
+        # 4. Get interest and ECR weights (sum to 1.0)
         interest_weight = 1.0
         ecr_weight = 0.0
         if 'weighting' in constraints:
             if 'Interest Rates' in constraints['weighting']:
                 interest_data = constraints['weighting']['Interest Rates']
                 if interest_data['enabled']:
-                    interest_weight = interest_data['value'] * interest_data['weight']
+                    interest_weight = interest_data['value']
                     
             if 'ECR Return' in constraints['weighting']:
                 ecr_data = constraints['weighting']['ECR Return']
                 if ecr_data['enabled']:
-                    ecr_weight = ecr_data['value'] * ecr_data['weight']
+                    ecr_weight = ecr_data['value']
         
-        # Normalize weights to sum to 1.0
-        total_weight = interest_weight + ecr_weight
-        if total_weight > 0:
-            interest_weight /= total_weight
-            ecr_weight /= total_weight
-        else:
-            interest_weight = 1.0
-            ecr_weight = 0.0
+        # 5. Get liquidity reserve percentage (0-100%)
+        liquidity_reserve = 0.3  # Default 30%
+        if 'liquidity' in constraints:
+            liquidity_constraints = constraints['liquidity']
+            if liquidity_constraints and liquidity_constraints[0]['enabled']:
+                # Convert percentage to decimal
+                liquidity_reserve = liquidity_constraints[0]['value'] / 100.0
+        
+        # Get total funds and apply liquidity constraint
+        query = f"""
+        SELECT SUM(current_balance) as total_balance
+        FROM {TABLE_TEST_DATA}
+        WHERE {TestDataColumns.ASSOCIATION_NAME} = '{association_name}'
+        """
+        balance_df = execute_sql_query(query)
+        total_funds = float(balance_df['total_balance'].iloc[0] or 0) if not balance_df.empty else 0
+        
+        if total_funds <= 0:
+            logger.warning(f"No funds available for association {association_name}")
+            return pd.DataFrame(), total_funds
+
+        available_funds = total_funds * (1 - liquidity_reserve)
+        
+        logger.info(f"Total funds: ${total_funds:,.2f}")
+        logger.info(f"Liquidity reserve ({liquidity_reserve*100}%): ${total_funds * liquidity_reserve:,.2f}")
+        logger.info(f"Available for allocation: ${available_funds:,.2f}")
+
+        # Create allocation variables
+        allocation = {}
+        for bank in filtered_rates['Bank Name'].unique():
+            bank_subset = filtered_rates[filtered_rates["Bank Name"] == bank]
+            for _, row in bank_subset.iterrows():
+                term = row["CD Term"]
+                allocation[(bank, term)] = solver.IntVar(0, solver.infinity(), f'alloc_{bank}_{term}')
+        
+        # Add constraints
+        solver.Add(sum(allocation.values()) <= available_funds)
+        
+        for bank in filtered_rates['Bank Name'].unique():
+            vars_to_sum = [var for (b, _), var in allocation.items() if b == bank]
+            if vars_to_sum:
+                solver.Add(sum(vars_to_sum) <= max_bank_allocation)
+        
+        # Set objective function using composite score
+        objective = solver.Objective()
         
         for (bank, term), var in allocation.items():
-            # Get the CD rate
             rate_row = filtered_rates[(filtered_rates["Bank Name"] == bank) & 
                                     (filtered_rates["CD Term"] == term)]
             
             if not rate_row.empty:
-                # Get CD rate
-                cd_rate = rate_row["CD Rate"].values[0]
-                
-                # Get bank weight
+                cd_rate = rate_row["CD Rate"].values[0] / 100
                 bank_weight = bank_weights.get(bank, 1.0)
+                time_weight = rate_row['time_weight'].values[0]
                 
-                # Get time weight
-                time_weight = rate_row.get('time_weight', 1.0).values[0]
+                # Calculate composite score
+                composite_score = cd_rate * interest_weight
                 
-                # Calculate weighted coefficient
-                weighted_coef = (cd_rate / 100) * interest_weight * bank_weight * time_weight
-                
-                # Add ECR weight if available
+                # Add ECR component if enabled
                 if ecr_weight > 0:
                     try:
                         ecr_query = f"""
@@ -445,23 +459,51 @@ def optimize_fund_allocation(
                         """
                         ecr_df = execute_sql_query(ecr_query)
                         if not ecr_df.empty:
-                            ecr_rate = ecr_df[ECRRatesColumns.ECR_RATE].values[0]
-                            weighted_coef += (ecr_rate / 100) * ecr_weight * bank_weight
+                            ecr_rate = ecr_df[ECRRatesColumns.ECR_RATE].values[0] / 100
+                            composite_score += ecr_rate * ecr_weight
                     except Exception as e:
                         logger.warning(f"Error getting ECR rate for {bank}: {str(e)}")
                 
-                objective.SetCoefficient(var, weighted_coef)
+                # Get product weight for CDs
+                product_weight = 0.0
+                if 'product' in constraints:
+                    product_constraints = constraints['product']
+                    if 'CD' in product_constraints and product_constraints['CD']['enabled']:
+                        # Get the CD weight (0-100%) and multiply by category weight
+                        product_weight = product_constraints['CD']['value'] * category_weights['product']
+                
+                # Apply category weights and individual constraint weights
+                # If a category weight is 0, treat it as 1 to avoid zeroing out the score
+                weighting_weight = category_weights['weighting'] if category_weights['weighting'] > 0 else 1.0
+                bank_weight = bank_weight * (category_weights['bank'] if category_weights['bank'] > 0 else 1.0)
+                time_weight = time_weight * (category_weights['time'] if category_weights['time'] > 0 else 1.0)
+                
+                composite_score *= weighting_weight  # Apply weighting category weight
+                composite_score *= bank_weight  # Apply bank weights
+                composite_score *= time_weight  # Apply time weights
+                composite_score *= product_weight if product_weight > 0 else 1.0  # Apply product weight
+                
+                # Log the components of the score for debugging
+                logger.info(f"Score components for {bank} {term}:")
+                logger.info(f"  CD Rate: {cd_rate}, Interest Weight: {interest_weight}")
+                logger.info(f"  Product Weight: {product_weight}, Product Category Weight: {category_weights['product']}")
+                logger.info(f"  Bank Weight: {bank_weight}, Bank Category Weight: {category_weights['bank']}")
+                logger.info(f"  Time Weight: {time_weight}, Time Category Weight: {category_weights['time']}")
+                logger.info(f"  Weighting Category Weight: {category_weights['weighting']}")
+                logger.info(f"  Final Composite Score: {composite_score}")
+                
+                objective.SetCoefficient(var, composite_score)
         
         objective.SetMaximization()
         
-        # Solve the optimization problem
+        # Solve and process results
         status = solver.Solve()
         
         if status != pywraplp.Solver.OPTIMAL:
             logger.warning(f"No optimal solution found. Solver status: {status}")
-            return pd.DataFrame()
+            return pd.DataFrame(), total_funds
         
-        # Create results list with separate calculations
+        # Create results with actual rates for reporting
         results = []
         for (bank, term), var in allocation.items():
             if var.solution_value() > 0:
@@ -481,13 +523,19 @@ def optimize_fund_allocation(
                   
         if not results:
             logger.warning("Optimization completed but no funds were allocated")
-            return pd.DataFrame()
+            logger.warning("Category weights:")
+            for category, weight in category_weights.items():
+                logger.warning(f"  {category}: {weight}")
+            logger.warning("Bank weights:")
+            for bank, weight in bank_weights.items():
+                logger.warning(f"  {bank}: {weight}")
+            logger.warning("Time weights:")
+            logger.warning(filtered_rates[['CD Term', 'time_weight']].to_string())
+            return pd.DataFrame(), total_funds
             
-        # Create DataFrame with explicit column names
         columns = ["Bank Name", "CD Term", "Allocated Amount", "CD Rate", "Expected Return"]
         df = pd.DataFrame(results, columns=columns)
         
-        # Add summary row
         summary_row = pd.DataFrame([[
             "TOTAL",
             "",
@@ -496,10 +544,9 @@ def optimize_fund_allocation(
             df["Expected Return"].sum()
         ]], columns=columns)
         
-        # Combine results with summary
         final_df = pd.concat([df, summary_row], ignore_index=True)
         
-        return final_df
+        return final_df, total_funds
         
     except Exception as e:
         logger.error(f"Optimization error: {str(e)}")
@@ -533,28 +580,11 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
                 'results': None
             }
         
-        # Get total current balance for the association
-        query = f"""
-        SELECT SUM(current_balance) as total_balance
-        FROM {TABLE_TEST_DATA}
-        WHERE {TestDataColumns.ASSOCIATION_NAME} = '{association_name}'
-        """
-        balance_df = execute_sql_query(query)
-        total_funds = float(balance_df['total_balance'].iloc[0] or 0) if not balance_df.empty else 0
-        
-        if total_funds <= 0:
-            return {
-                'success': False,
-                'message': f'No funds available for association: {association_name}',
-                'results': None
-            }
-        
         # Run optimization
-        result_df = optimize_fund_allocation(
+        result_df, total_funds = optimize_fund_allocation(
             bank_ranking_df,
             bank_rates_df,
             constraints,
-            total_funds,
             branch_name,
             association_name
         )
