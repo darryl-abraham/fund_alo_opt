@@ -302,6 +302,31 @@ def download_results():
         return redirect(url_for('index'))
     
     results = session['results']
+    params = session.get('params', {})
+    
+    # Get branch relationships if available
+    branch_relationships = None
+    if params.get('branch_name'):
+        try:
+            branch_relationships = optimizer.get_branch_relationships(params['branch_name'])
+            related_banks = []
+            for bank_col in optimizer.BranchRelationshipsColumns.__dict__.values():
+                if isinstance(bank_col, str) and bank_col != optimizer.BranchRelationshipsColumns.BRANCH_NAME:
+                    try:
+                        if branch_relationships[bank_col].iloc[0] == 1:
+                            bank_name = bank_col.replace('_', ' ').title()
+                            related_banks.append(bank_name)
+                    except KeyError:
+                        continue
+            # Add relationships to results
+            results['branch_info'] = {
+                'branch_name': params['branch_name'],
+                'association_name': params.get('association_name'),
+                'related_banks': related_banks
+            }
+        except Exception as e:
+            logger.warning(f"Could not get branch relationships: {str(e)}")
+    
     excel_data = optimizer.export_results_to_excel(results)
     
     return send_file(

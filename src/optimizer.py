@@ -7,6 +7,8 @@ import io
 import json
 import sqlite3
 import db_utils
+import openpyxl.styles
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -269,6 +271,7 @@ def optimize_fund_allocation(
     constraints: dict, 
     branch_name: str,
     association_name: str,
+    custom_allocation: Optional[float] = None,  # Add parameter for custom allocation
     time_limit_seconds: int = 30
 ) -> Tuple[pd.DataFrame, float]:
     """
@@ -284,6 +287,7 @@ def optimize_fund_allocation(
         constraints: Dictionary with optimization constraints from database
         branch_name: Name of the branch to optimize for
         association_name: Name of the association to optimize for
+        custom_allocation: Optional custom allocation amount to use instead of total funds
         time_limit_seconds: Time limit for the solver in seconds
         
     Returns:
@@ -399,20 +403,26 @@ def optimize_fund_allocation(
                 # Convert percentage to decimal
                 liquidity_reserve = liquidity_constraints[0]['value'] / 100.0
         
-        # Get total funds and apply liquidity constraint
-        query = f"""
-        SELECT SUM(current_balance) as total_balance
-        FROM {TABLE_TEST_DATA}
-        WHERE {TestDataColumns.ASSOCIATION_NAME} = '{association_name}'
-        """
-        balance_df = execute_sql_query(query)
-        total_funds = float(balance_df['total_balance'].iloc[0] or 0) if not balance_df.empty else 0
-        
-        if total_funds <= 0:
-            logger.warning(f"No funds available for association {association_name}")
-            return pd.DataFrame(), total_funds
+        # Get total funds - either from database or use custom allocation
+        if custom_allocation is not None:
+            available_funds = custom_allocation
+            total_funds = custom_allocation / (1 - liquidity_reserve)  # Calculate implied total funds
+            logger.info(f"Using custom allocation amount: ${custom_allocation:,.2f}")
+        else:
+            # Get total funds from database (existing code)
+            query = f"""
+            SELECT SUM(current_balance) as total_balance
+            FROM {TABLE_TEST_DATA}
+            WHERE {TestDataColumns.ASSOCIATION_NAME} = '{association_name}'
+            """
+            balance_df = execute_sql_query(query)
+            total_funds = float(balance_df['total_balance'].iloc[0] or 0) if not balance_df.empty else 0
+            
+            if total_funds <= 0:
+                logger.warning(f"No funds available for association {association_name}")
+                return pd.DataFrame(), total_funds
 
-        available_funds = total_funds * (1 - liquidity_reserve)
+            available_funds = total_funds * (1 - liquidity_reserve)
         
         logger.info(f"Total funds: ${total_funds:,.2f}")
         logger.info(f"Liquidity reserve ({liquidity_reserve*100}%): ${total_funds * liquidity_reserve:,.2f}")
@@ -552,12 +562,66 @@ def optimize_fund_allocation(
         logger.error(f"Optimization error: {str(e)}")
         raise
 
+def get_current_portfolio(association_name: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """
+    Get current portfolio data for an association from the database.
+    
+    Args:
+        association_name: Name of the association
+        
+    Returns:
+        Tuple containing:
+        - List of current investments
+        - Summary of current portfolio
+    """
+    try:
+        query = f"""
+        SELECT 
+            holder as bank,
+            investment_type as product_type,
+            current_balance as amount,
+            investment_rate as rate,
+            (current_balance * investment_rate / 1200) as monthly_interest
+        FROM {TABLE_TEST_DATA}
+        WHERE association_name = '{association_name}'
+        AND current_balance > 0
+        """
+        
+        df = execute_sql_query(query)
+        
+        if df.empty:
+            return [], {'total_balance': 0, 'monthly_interest': 0}
+            
+        current_portfolio = []
+        for _, row in df.iterrows():
+            current_portfolio.append({
+                'bank': row['bank'],
+                'product_type': row['product_type'],
+                'amount': float(row['amount']),
+                'rate': float(row['rate']),
+                'monthly_interest': float(row['monthly_interest'])
+            })
+            
+        summary = {
+            'total_balance': sum(inv['amount'] for inv in current_portfolio),
+            'monthly_interest': sum(inv['monthly_interest'] for inv in current_portfolio)
+        }
+        
+        return current_portfolio, summary
+        
+    except Exception as e:
+        logger.error(f"Error getting current portfolio: {str(e)}")
+        return [], {'total_balance': 0, 'monthly_interest': 0}
+
 def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Run the optimization pipeline and return formatted results.
     
     Args:
-        params: Dictionary containing optimization parameters
+        params: Dictionary containing optimization parameters including:
+            - branch_name: Name of the branch
+            - association_name: Name of the association
+            - allocation_amount: Optional custom allocation amount
         
     Returns:
         Dictionary with optimization results and summary information
@@ -572,6 +636,7 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
         # Extract parameters with defaults
         branch_name = params.get('branch_name')
         association_name = params.get('association_name')
+        allocation_amount = params.get('allocation_amount')  # Get custom allocation amount if provided
         
         if not branch_name or not association_name:
             return {
@@ -579,14 +644,35 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
                 'message': 'Both branch name and association name are required for optimization.',
                 'results': None
             }
+            
+        # Get current portfolio data
+        current_portfolio, current_summary = get_current_portfolio(association_name)
         
-        # Run optimization
+        # Convert allocation_amount to float if provided
+        if allocation_amount is not None:
+            try:
+                allocation_amount = float(allocation_amount)
+                if allocation_amount <= 0:
+                    return {
+                        'success': False,
+                        'message': 'Allocation amount must be greater than 0.',
+                        'results': None
+                    }
+            except ValueError:
+                return {
+                    'success': False,
+                    'message': 'Invalid allocation amount format.',
+                    'results': None
+                }
+        
+        # Run optimization with optional custom allocation amount
         result_df, total_funds = optimize_fund_allocation(
             bank_ranking_df,
             bank_rates_df,
             constraints,
             branch_name,
-            association_name
+            association_name,
+            custom_allocation=allocation_amount
         )
         
         if result_df.empty:
@@ -607,6 +693,8 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
             'success': True,
             'message': 'Optimization completed successfully',
             'results': results,
+            'current_portfolio': current_portfolio,
+            'current_portfolio_summary': current_summary,
             'summary': {
                 'total_allocated': summary['Allocated Amount'],
                 'total_return': summary['Expected Return'],
@@ -627,7 +715,7 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
 
 def export_results_to_excel(results: Dict[str, Any]) -> bytes:
     """
-    Export optimization results to Excel file.
+    Export optimization results to Excel file with a single comprehensive sheet.
     
     Args:
         results: Optimization results dictionary
@@ -637,25 +725,209 @@ def export_results_to_excel(results: Dict[str, Any]) -> bytes:
     """
     if not results['success'] or not results['results']:
         df = pd.DataFrame([{'Error': results['message']}])
-    else:
-        # Create DataFrame from results
-        df = pd.DataFrame(results['results'])
-        
-        # Add summary row
-        summary_row = pd.DataFrame([{
-            'Bank Name': 'TOTAL',
-            'CD Term': '',
-            'Allocated Amount': results['summary']['total_allocated'],
-            'CD Rate': results['summary']['weighted_avg_rate'],
-            'Expected Return': results['summary']['total_return']
-        }])
-        
-        df = pd.concat([df, summary_row], ignore_index=True)
-    
-    # Write to bytes buffer
+        output = io.BytesIO()
+        df.to_excel(output, index=False)
+        output.seek(0)
+        return output.getvalue()
+
+    # Create Excel writer
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Allocation Results', index=False)
-    
+        # Create header section with dynamic values
+        monthly_interest_increase = results['summary']['total_return'] - results['current_portfolio_summary']['monthly_interest']
+        header_data = [
+            ['', ''],  # Empty row for spacing
+            [f"Hi {results.get('client_name', 'Client')},", ''],
+            ['', ''],  # Empty row for spacing
+            ['Thank you for taking the time to meet with me in reviewing your investment goals. Based on our conversation, I have completed a detailed', ''],
+            [f"recommendation for you, which I've estimated to provide you up to ${results['summary']['total_return']:,.2f} in interest income per month which is an increase of ${monthly_interest_increase:,.2f} versus", ''],
+            ['your current portfolio.', ''],
+            ['', ''],  # Empty row for spacing
+            ['Your current portfolio consists of:', ''],
+            ['Funds Residing at', 'Product Type', '$ Invested', 'Current Rate of Return', 'Estimated Monthly Interest'],
+        ]
+        
+        # Add current portfolio data
+        current_portfolio = pd.DataFrame(header_data)
+        
+        # Add the current investments from results
+        if results['current_portfolio']:
+            for investment in results['current_portfolio']:
+                current_portfolio.loc[len(current_portfolio)] = [
+                    investment['bank'],
+                    investment['product_type'],
+                    f"${investment['amount']:,.2f}",
+                    f"{investment['rate']:.3f}%",
+                    f"${investment['monthly_interest']:,.2f}"
+                ]
+        
+        # Add total row for current portfolio
+        current_portfolio.loc[len(current_portfolio)] = [
+            'Total Balance:',
+            '',
+            f"${results['current_portfolio_summary']['total_balance']:,.2f}",
+            '',
+            f"${results['current_portfolio_summary']['monthly_interest']:,.2f}"
+        ]
+        
+        # Add spacing and proposal section
+        current_portfolio.loc[len(current_portfolio)] = ['', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['Our proposal is as follows:', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['Send Funds to', 'Product Type', '$ Invested', 'Current Rate of Return', 'Estimated Monthly Interest']
+        
+        # Add proposed allocations
+        for allocation in results['results']:
+            current_portfolio.loc[len(current_portfolio)] = [
+                allocation['Bank Name'],
+                allocation['CD Term'],
+                f"${allocation['Allocated Amount']:,.2f}",
+                f"{allocation['CD Rate']:.3f}%",
+                f"${allocation['Expected Return']:,.2f}"
+            ]
+        
+        # Add total row for proposal
+        current_portfolio.loc[len(current_portfolio)] = [
+            'Total Balance:',
+            '',
+            f"${results['summary']['total_allocated']:,.2f}",
+            '',
+            f"${results['summary']['total_return']:,.2f}"
+        ]
+        
+        # Generate dynamic CDARS recommendation text
+        cdars_recommendations = []
+        cdars_allocations = [alloc for alloc in results['results'] if 'CDARS' in alloc['CD Term']]
+        if cdars_allocations:
+            by_term = {}
+            for alloc in cdars_allocations:
+                term = alloc['CD Term']
+                amount = alloc['Allocated Amount']
+                if term not in by_term:
+                    by_term[term] = []
+                by_term[term].append(amount)
+            
+            for term, amounts in by_term.items():
+                amounts_text = ', '.join(f"${amount:,.0f}k" for amount in amounts)
+                cdars_recommendations.append(f"{term} CDARS for amounts {amounts_text}")
+        
+        cdars_text = "We recommend opening with PWB " + " and ".join(cdars_recommendations) + "." if cdars_recommendations else ""
+        
+        # Add notes section with dynamic content
+        current_date = datetime.now().strftime('%m/%d/%Y')
+        current_portfolio.loc[len(current_portfolio)] = ['', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['Notes:', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = [f"The amounts referenced in the current proposal section are from C3 balance as of {current_date}. Per our call, here is what the", '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['above proposal reflects:', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['1. We\'re going request a new PWB Money Market Reserve Account be opened with a $0 balance, this account will be used to move Solar', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['reserve funds in the future, and keep these funds segregated on your balance sheet.', '', '', '', '']
+        if cdars_text:
+            current_portfolio.loc[len(current_portfolio)] = ['2. ' + cdars_text, '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['All funds are 100% protected with maximum returns. Keep in mind that anything above can be changed at your discretion or with further', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['information.', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['To move forward with this proposal as outlined, please HAVE YOUR COMMUNITY MANAGER reply to this email and copy', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['clientservices@associa.us with the following information to allow us to assist you in the management of the account opening process:', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['1. Board Meeting minutes approving and outlining the desired plan of action', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['2. Articles of Incorporation', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['3. Signed Management Agreement', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['4. EIN/Federal Tax ID Number', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['5. Provide how many homes/units are in the community', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['6. Provide how much the average dues are, and the frequency of collection', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['Please note, based on the operating processes required to manage this task for you, accounts may take up to 2-3 weeks to open. This', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['timeline takes into consideration:', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['1. The SLA\'s of our internal bank ops team to make the account opening requests + validation of provided documentation', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['2. The SLA\'s of the bank\'s ops team to open the requested accounts', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['3. Account activation in the systems for management', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['4. The transference of funds, which is the responsibility of the Board and/or the CAM', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['5. Notice of completion', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['', '', '', '', '']
+        current_portfolio.loc[len(current_portfolio)] = ['It\'s been our pleasure to serve you and thank you for giving us this opportunity to support your community\'s treasury needs.', '', '', '', '']
+        
+        # Write to Excel
+        current_portfolio.to_excel(writer, sheet_name='Proposal', index=False, header=False)
+        
+        # Get the worksheet
+        ws = writer.sheets['Proposal']
+        
+        # Format the worksheet
+        # Set column widths
+        ws.column_dimensions['A'].width = 30  # Funds Residing at / Send Funds to
+        ws.column_dimensions['B'].width = 20  # Product Type
+        ws.column_dimensions['C'].width = 15  # $ Invested
+        ws.column_dimensions['D'].width = 25  # Current Rate of Return
+        ws.column_dimensions['E'].width = 25  # Estimated Monthly Interest
+        
+        # Define styles
+        header_fill = openpyxl.styles.PatternFill(start_color='E6E6FA', end_color='E6E6FA', fill_type='solid')  # Light lavender
+        alt_row_fill = openpyxl.styles.PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')  # Light gray
+        total_fill = openpyxl.styles.PatternFill(start_color='E6E6FA', end_color='E6E6FA', fill_type='solid')  # Light lavender
+        bold_font = openpyxl.styles.Font(bold=True)
+        thin_border = openpyxl.styles.Border(
+            left=openpyxl.styles.Side(style='thin'),
+            right=openpyxl.styles.Side(style='thin'),
+            top=openpyxl.styles.Side(style='thin'),
+            bottom=openpyxl.styles.Side(style='thin')
+        )
+        
+        # Format current portfolio table
+        current_portfolio_start = 9  # Row number where current portfolio table starts
+        current_portfolio_end = current_portfolio_start + len(results['current_portfolio']) + 1  # Add 1 for the header row
+        
+        # Format headers
+        for row in ws.iter_rows(min_row=current_portfolio_start, max_row=current_portfolio_start):
+            for cell in row:
+                cell.font = bold_font
+                cell.fill = header_fill
+                cell.border = thin_border
+        
+        # Format data rows
+        for row_idx in range(current_portfolio_start + 1, current_portfolio_end):
+            for cell in ws[row_idx]:
+                cell.border = thin_border
+                if row_idx % 2 == 0:
+                    cell.fill = alt_row_fill
+        
+        # Format total row
+        for cell in ws[current_portfolio_end]:
+            cell.font = bold_font
+            cell.fill = total_fill
+            cell.border = thin_border
+        
+        # Format proposal table
+        proposal_start = current_portfolio_end + 3
+        proposal_end = proposal_start + len(results['results']) + 1
+        
+        # Format proposal header
+        for row in ws.iter_rows(min_row=proposal_start, max_row=proposal_start):
+            for cell in row:
+                cell.font = bold_font
+                cell.fill = header_fill
+                cell.border = thin_border
+        
+        # Format proposal data rows
+        for row_idx in range(proposal_start + 1, proposal_end):
+            for cell in ws[row_idx]:
+                cell.border = thin_border
+                if row_idx % 2 == 0:
+                    cell.fill = alt_row_fill
+        
+        # Format proposal total row
+        for cell in ws[proposal_end]:
+            cell.font = bold_font
+            cell.fill = total_fill
+            cell.border = thin_border
+        
+        # Add right alignment for numbers and rates
+        for row in ws.iter_rows(min_row=current_portfolio_start):
+            if row[2].value and isinstance(row[2].value, str) and row[2].value.startswith('$'):
+                row[2].alignment = openpyxl.styles.Alignment(horizontal='right')
+            if row[3].value and isinstance(row[3].value, str) and '%' in row[3].value:
+                row[3].alignment = openpyxl.styles.Alignment(horizontal='right')
+            if row[4].value and isinstance(row[4].value, str) and row[4].value.startswith('$'):
+                row[4].alignment = openpyxl.styles.Alignment(horizontal='right')
+
     output.seek(0)
     return output.getvalue() 
