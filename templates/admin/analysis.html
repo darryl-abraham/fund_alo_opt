@@ -38,6 +38,36 @@
         height: 300px;
         margin-bottom: 2rem;
     }
+    .file-upload-section {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .comparison-table th {
+        background-color: #f1f8ff;
+    }
+    .savings-highlight {
+        color: #28a745;
+        font-weight: bold;
+    }
+    .loss-highlight {
+        color: #dc3545;
+        font-weight: bold;
+    }
+    .upload-zone {
+        border: 2px dashed #ccc;
+        padding: 20px;
+        text-align: center;
+        background: white;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .upload-zone:hover {
+        border-color: #0d6efd;
+        background: #f8f9fa;
+    }
 </style>
 {% endblock %}
 
@@ -47,21 +77,164 @@
         {% include "admin/sidebar.html" %}
     </div>
     <div class="col-md-9">
-        <div class="card">
+        <div class="card mb-4">
             <div class="card-header bg-primary text-white">
                 <h4 class="mb-0"><i class="bi bi-graph-up"></i> Analysis Dashboard</h4>
             </div>
             <div class="card-body">
+                <!-- Excel Upload Section -->
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0"><i class="bi bi-file-earmark-excel"></i> Excel-Driven Analysis</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="excelAnalysisForm" action="{{ url_for('analyze_excel') }}" method="post" enctype="multipart/form-data">
+                                    <div class="row">
+                                        <div class="col-md-12 mb-3">
+                                            <div class="card h-100">
+                                                <div class="card-body">
+                                                    <h6 class="card-title"><i class="bi bi-file-spreadsheet"></i> Current Portfolio Data</h6>
+                                                    <div class="upload-zone" id="portfolioUpload">
+                                                        <input type="file" name="portfolio_file" class="d-none" accept=".xlsx,.xls" required>
+                                                        <i class="bi bi-cloud-upload display-4"></i>
+                                                        <p class="mb-0">Drop your portfolio Excel file here<br>or click to browse</p>
+                                                        <small class="text-muted">Format: CMI.xlsx or similar</small>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="text-center mt-3">
+                                        <button type="submit" class="btn btn-primary btn-lg">
+                                            <i class="bi bi-lightning-charge"></i> Run Analysis
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis Results Section -->
+                {% if analysis_results %}
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0"><i class="bi bi-check-circle"></i> Analysis Results</h5>
+                            </div>
+                            <div class="card-body">
+                                <!-- Performance Comparison -->
+                                <h6 class="mb-3">Performance Comparison</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered comparison-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Metric</th>
+                                                <th>Current</th>
+                                                <th>Best Available</th>
+                                                <th>Potential Improvement</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>Total Balance</td>
+                                                <td>${{ '{:,.2f}'.format(analysis_results.total_balance) }}</td>
+                                                <td>${{ '{:,.2f}'.format(analysis_results.total_balance) }}</td>
+                                                <td>-</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Average Rate</td>
+                                                <td>{{ '{:.3f}'.format(analysis_results.average_rate) }}%</td>
+                                                <td>{{ '{:.3f}'.format(analysis_results.average_rate + analysis_results.potential_rate_increase) }}%</td>
+                                                <td class="savings-highlight">+{{ '{:.3f}'.format(analysis_results.potential_rate_increase) }}%</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Monthly Interest</td>
+                                                <td>${{ '{:,.2f}'.format(analysis_results.current_monthly_interest) }}</td>
+                                                <td>${{ '{:,.2f}'.format(analysis_results.best_monthly_interest) }}</td>
+                                                <td class="savings-highlight">+${{ '{:,.2f}'.format(analysis_results.monthly_interest_increase) }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Annual Interest</td>
+                                                <td>${{ '{:,.2f}'.format(analysis_results.current_annual_interest) }}</td>
+                                                <td>${{ '{:,.2f}'.format(analysis_results.best_annual_interest) }}</td>
+                                                <td class="savings-highlight">+${{ '{:,.2f}'.format(analysis_results.annual_interest_increase) }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Underperforming Accounts -->
+                                <h6 class="mt-4 mb-3">Top 10 Underperforming Accounts</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-bordered">
+                                        <thead>
+                                            <tr>
+                                                <th>Account</th>
+                                                <th>Bank/Holder</th>
+                                                <th>Product Type</th>
+                                                <th>Current Rate</th>
+                                                <th>Best Available Rate</th>
+                                                <th>Current Balance</th>
+                                                <th>Annual Loss</th>
+                                                <th>Maturity Date</th>
+                                                <th>Recommendation</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for account in analysis_results.underperforming[:10] %}
+                                            <tr>
+                                                <td>{{ account.name }}</td>
+                                                <td>{{ account.holder }}</td>
+                                                <td>{{ account.product_type }}</td>
+                                                <td class="loss-highlight">{{ '{:.3f}'.format(account.current_rate) }}%</td>
+                                                <td class="savings-highlight">{{ '{:.3f}'.format(account.best_rate) }}%</td>
+                                                <td>${{ '{:,.2f}'.format(account.balance) }}</td>
+                                                <td class="loss-highlight">-${{ '{:,.2f}'.format(account.annual_loss) }}</td>
+                                                <td>{{ account.maturity_date }}</td>
+                                                <td>{{ account.recommendation }}</td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Download Options -->
+                                <div class="text-center mt-4">
+                                    <div class="row justify-content-center">
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-body">
+                                                    <h5 class="card-title"><i class="bi bi-download"></i> Download Options</h5>
+                                                    <p class="card-text">Download the complete analysis report including all underperforming accounts and detailed metrics.</p>
+                                                    <a href="{{ url_for('download_analysis_report') }}" class="btn btn-success btn-lg">
+                                                        <i class="bi bi-file-earmark-excel"></i> Download Full Report
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Summary Metrics -->
+                {% if analysis_results %}
                 <div class="row mb-4">
                     <div class="col-md-6 col-lg-3 mb-3">
                         <div class="card metric-card warning">
                             <div class="card-body">
                                 <h6 class="card-subtitle mb-2 text-muted">Non-Partner Bank Funds</h6>
-                                <div class="metric-value">${{ "%.1f"|format(non_partner_funds/1000000) }}M</div>
-                                <div class="metric-change {% if non_partner_change > 0 %}negative{% else %}positive{% endif %}">
-                                    <i class="bi bi-arrow-{{ non_partner_change_direction }}"></i>
-                                    {{ "%.1f"|format(non_partner_change_display) }}%
+                                <div class="metric-value">${{ "%.1f"|format(analysis_results.non_partner_funds/1000000) }}M</div>
+                                <div class="metric-change {% if analysis_results.non_partner_change > 0 %}negative{% else %}positive{% endif %}">
+                                    <i class="bi bi-arrow-{{ analysis_results.non_partner_change_direction }}"></i>
+                                    {{ "%.1f"|format(analysis_results.non_partner_change_display) }}%
                                 </div>
                             </div>
                         </div>
@@ -70,10 +243,10 @@
                         <div class="card metric-card danger">
                             <div class="card-body">
                                 <h6 class="card-subtitle mb-2 text-muted">Underperforming Funds</h6>
-                                <div class="metric-value">${{ "%.1f"|format(underperforming_funds/1000000) }}M</div>
-                                <div class="metric-change {% if underperforming_change > 0 %}negative{% else %}positive{% endif %}">
-                                    <i class="bi bi-arrow-{{ underperforming_change_direction }}"></i>
-                                    {{ "%.1f"|format(underperforming_change_display) }}%
+                                <div class="metric-value">${{ "%.1f"|format(analysis_results.underperforming_funds/1000000) }}M</div>
+                                <div class="metric-change {% if analysis_results.underperforming_change > 0 %}negative{% else %}positive{% endif %}">
+                                    <i class="bi bi-arrow-{{ analysis_results.underperforming_change_direction }}"></i>
+                                    {{ "%.1f"|format(analysis_results.underperforming_change_display) }}%
                                 </div>
                             </div>
                         </div>
@@ -82,10 +255,10 @@
                         <div class="card metric-card success">
                             <div class="card-body">
                                 <h6 class="card-subtitle mb-2 text-muted">Average Rate</h6>
-                                <div class="metric-value">{{ "%.2f"|format(average_rate) }}%</div>
-                                <div class="metric-change {% if rate_change > 0 %}positive{% else %}negative{% endif %}">
-                                    <i class="bi bi-arrow-{{ rate_change_direction }}"></i>
-                                    {{ "%.2f"|format(rate_change_display) }}%
+                                <div class="metric-value">{{ "%.2f"|format(analysis_results.average_rate) }}%</div>
+                                <div class="metric-change {% if analysis_results.rate_change > 0 %}positive{% else %}negative{% endif %}">
+                                    <i class="bi bi-arrow-{{ analysis_results.rate_change_direction }}"></i>
+                                    {{ "%.2f"|format(analysis_results.rate_change_display) }}%
                                 </div>
                             </div>
                         </div>
@@ -94,7 +267,7 @@
                         <div class="card metric-card success">
                             <div class="card-body">
                                 <h6 class="card-subtitle mb-2 text-muted">Potential Rate Increase</h6>
-                                <div class="metric-value">{{ "%.2f"|format(potential_rate_increase) }}%</div>
+                                <div class="metric-value">{{ "%.2f"|format(analysis_results.potential_rate_increase) }}%</div>
                                 <div class="text-muted small">
                                     If optimally allocated
                                 </div>
@@ -102,8 +275,10 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
                 <!-- Rate Performance Analysis -->
+                {% if analysis_results and analysis_results.rate_chart %}
                 <div class="card mb-4">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-graph-up"></i> Rate Performance Analysis</h5>
@@ -124,7 +299,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for term in rate_analysis %}
+                                    {% for term in analysis_results.rate_analysis %}
                                     <tr>
                                         <td>{{ term.name }}</td>
                                         <td>{{ "%.2f"|format(term.current_avg_rate) }}%</td>
@@ -138,8 +313,10 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
                 <!-- Maturity Analysis -->
+                {% if analysis_results and analysis_results.maturity_chart %}
                 <div class="card mb-4">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-calendar"></i> Maturity Analysis</h5>
@@ -150,6 +327,7 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -160,98 +338,179 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Non-Partner Bank Distribution Chart
-    new Chart(document.getElementById('nonPartnerChart'), {
-        type: 'bar',
-        data: {
-            labels: {{ non_partner_chart.labels|tojson }},
-            datasets: [{
-                label: 'Current Balance',
-                data: {{ non_partner_chart.balances|tojson }},
-                backgroundColor: 'rgba(255, 193, 7, 0.5)',
-                borderColor: 'rgba(255, 193, 7, 1)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return '$' + value/1000000 + 'M';
-                        }
-                    }
-                }
+    // File Upload Handling
+    function setupFileUpload(uploadZoneId) {
+        const uploadZone = document.getElementById(uploadZoneId);
+        const fileInput = uploadZone.querySelector('input[type="file"]');
+        
+        uploadZone.addEventListener('click', () => fileInput.click());
+        
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.style.borderColor = '#0d6efd';
+            uploadZone.style.background = '#f8f9fa';
+        });
+        
+        uploadZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadZone.style.borderColor = '#ccc';
+            uploadZone.style.background = 'white';
+        });
+        
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.style.borderColor = '#ccc';
+            uploadZone.style.background = 'white';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                updateFileName(uploadZone, files[0].name);
             }
-        }
-    });
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                updateFileName(uploadZone, e.target.files[0].name);
+            }
+        });
+    }
+    
+    function updateFileName(uploadZone, fileName) {
+        const paragraph = uploadZone.querySelector('p');
+        paragraph.innerHTML = `Selected file:<br><strong>${fileName}</strong>`;
+    }
+    
+    setupFileUpload('portfolioUpload');
+    
+    // Form Submission Handling
+    const analysisForm = document.getElementById('excelAnalysisForm');
+    if (analysisForm) {
+        analysisForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const submitButton = this.querySelector('button[type="submit"]');
+            const originalButtonText = submitButton.innerHTML;
+            
+            // Show loading state
+            submitButton.disabled = true;
+            submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Analyzing...';
+            
+            fetch(this.action, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Instead of reloading, redirect to the analysis page
+                    window.location.href = "{{ url_for('admin_analysis') }}";
+                } else {
+                    // Show error message
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3';
+                    alertDiv.innerHTML = `
+                        <strong>Error!</strong> ${data.message}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    this.appendChild(alertDiv);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3';
+                alertDiv.innerHTML = `
+                    <strong>Error!</strong> An unexpected error occurred. Please try again.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                this.appendChild(alertDiv);
+            })
+            .finally(() => {
+                // Restore button state
+                submitButton.disabled = false;
+                submitButton.innerHTML = originalButtonText;
+            });
+        });
+    }
 
-    // Rate Performance Chart
-    new Chart(document.getElementById('ratePerformanceChart'), {
-        type: 'line',
-        data: {
-            labels: {{ rate_chart.labels|tojson }},
+    // Initialize Charts if analysis results exist
+    {% if analysis_results and analysis_results.rate_chart %}
+    const rateChartCtx = document.getElementById('ratePerformanceChart');
+    if (rateChartCtx) {
+        const rateChartData = {
+            labels: {{ analysis_results.rate_chart.labels|tojson }},
             datasets: [{
                 label: 'Current Average Rate',
-                data: {{ rate_chart.current_rates|tojson }},
+                data: {{ analysis_results.rate_chart.current_rates|tojson }},
                 borderColor: 'rgba(220, 53, 69, 1)',
                 backgroundColor: 'rgba(220, 53, 69, 0.1)',
                 fill: true
             }, {
                 label: 'Best Available Rate',
-                data: {{ rate_chart.best_rates|tojson }},
+                data: {{ analysis_results.rate_chart.best_rates|tojson }},
                 borderColor: 'rgba(40, 167, 69, 1)',
                 backgroundColor: 'rgba(40, 167, 69, 0.1)',
                 fill: true
             }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return value + '%';
+        };
+        
+        new Chart(rateChartCtx, {
+            type: 'line',
+            data: rateChartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return value + '%';
+                            }
                         }
                     }
                 }
             }
-        }
-    });
+        });
+    }
+    {% endif %}
 
-    // Maturity Distribution Chart
-    new Chart(document.getElementById('maturityChart'), {
-        type: 'bar',
-        data: {
-            labels: {{ maturity_chart.labels|tojson }},
+    {% if analysis_results and analysis_results.maturity_chart %}
+    const maturityChartCtx = document.getElementById('maturityChart');
+    if (maturityChartCtx) {
+        const maturityChartData = {
+            labels: {{ analysis_results.maturity_chart.labels|tojson }},
             datasets: [{
                 label: 'Maturing Funds',
-                data: {{ maturity_chart.amounts|tojson }},
+                data: {{ analysis_results.maturity_chart.amounts|tojson }},
                 backgroundColor: 'rgba(0, 123, 255, 0.5)',
                 borderColor: 'rgba(0, 123, 255, 1)',
                 borderWidth: 1
             }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return '$' + value/1000000 + 'M';
+        };
+        
+        new Chart(maturityChartCtx, {
+            type: 'bar',
+            data: maturityChartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + (value/1000000).toFixed(1) + 'M';
+                            }
                         }
                     }
                 }
             }
-        }
-    });
+        });
+    }
+    {% endif %}
 });
 </script>
 {% endblock %} 

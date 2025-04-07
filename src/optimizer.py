@@ -930,4 +930,399 @@ def export_results_to_excel(results: Dict[str, Any]) -> bytes:
                 row[4].alignment = openpyxl.styles.Alignment(horizontal='right')
 
     output.seek(0)
-    return output.getvalue() 
+    return output.getvalue()
+
+def analyze_portfolio(portfolio_path: str) -> Dict[str, Any]:
+    """
+    Analyze portfolio data against current rates in the database to identify optimization opportunities.
+    Analysis is performed at the overall level, comparing current state with best available rates.
+    
+    Args:
+        portfolio_path: Path to the portfolio Excel file
+        
+    Returns:
+        Dictionary containing analysis results including:
+        - Current portfolio metrics
+        - Underperforming accounts
+        - Rate analysis by term
+        - Charts data for visualization
+    """
+    try:
+        # Read portfolio data
+        portfolio_df = pd.read_excel(portfolio_path)
+        
+        # Define column mapping for standardization
+        column_mapping = {
+            'summary_account': 'account',
+            'summary_description': 'description',
+            'pf_account_no': 'account_number',
+            'account_desc': 'account_description',
+            'holder': 'holder',
+            'investment_type': 'product_type',
+            'bank_account': 'bank_account',
+            'purchase_date': 'purchase_date',
+            'investment_term': 'term',
+            'maturity_date': 'maturity_date',
+            'investment_rate': 'rate',
+            'note': 'note',
+            'as_of_date': 'as_of_date',
+            'current_balance': 'balance',
+            'association_report_name': 'association_name'
+        }
+        
+        # Clean and standardize column names
+        portfolio_df.columns = [col.strip().lower().replace(' ', '_') for col in portfolio_df.columns]
+        
+        # Ensure required columns exist
+        required_columns = ['current_balance', 'investment_rate', 'holder', 'investment_type']
+        missing_columns = [col for col in required_columns if col not in portfolio_df.columns]
+        if missing_columns:
+            raise ValueError(f"Missing required columns in Excel file: {', '.join(missing_columns)}")
+        
+        # Rename columns using the mapping
+        portfolio_df = portfolio_df.rename(columns=column_mapping)
+        
+        # Convert data types
+        portfolio_df['balance'] = pd.to_numeric(portfolio_df['balance'], errors='coerce')
+        portfolio_df['rate'] = pd.to_numeric(portfolio_df['rate'], errors='coerce')
+        portfolio_df['term'] = pd.to_numeric(portfolio_df['term'], errors='coerce')
+        
+        # Remove rows with invalid data
+        portfolio_df = portfolio_df.dropna(subset=['balance', 'rate'])
+        
+        # Get current rates from database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get best available rates by term
+        rate_query = """
+        SELECT 
+            cd_term,
+            MAX(cd_rate) as best_rate
+        FROM cd_rates
+        WHERE cd_rate IS NOT NULL
+        AND cd_rate > 0
+        GROUP BY cd_term
+        """
+        cursor.execute(rate_query)
+        best_rates = {row['cd_term']: float(row['best_rate']) for row in cursor.fetchall()}
+        
+        # Get partner bank relationships
+        bank_query = """
+        SELECT DISTINCT bank_name
+        FROM cd_rates
+        WHERE cd_rate IS NOT NULL
+        AND cd_rate > 0
+        """
+        cursor.execute(bank_query)
+        partner_banks = {row['bank_name'] for row in cursor.fetchall()}
+        
+        # Calculate current metrics
+        total_balance = portfolio_df['balance'].sum()
+        weighted_avg_rate = (portfolio_df['balance'] * portfolio_df['rate']).sum() / total_balance if total_balance > 0 else 0
+        monthly_interest = (total_balance * weighted_avg_rate) / (12 * 100)
+        annual_interest = monthly_interest * 12
+        
+        # Calculate best possible metrics (using best available rates)
+        best_available_rate = max(best_rates.values())
+        best_monthly_interest = (total_balance * best_available_rate) / (12 * 100)
+        best_annual_interest = best_monthly_interest * 12
+        
+        # Calculate non-partner bank metrics
+        non_partner_mask = ~portfolio_df['holder'].isin(partner_banks)
+        non_partner_funds = portfolio_df.loc[non_partner_mask, 'balance'].sum()
+        non_partner_pct = (non_partner_funds / total_balance * 100) if total_balance > 0 else 0
+        
+        # Identify underperforming accounts
+        underperforming_mask = portfolio_df['rate'] < best_available_rate
+        underperforming_funds = portfolio_df.loc[underperforming_mask, 'balance'].sum()
+        underperforming_pct = (underperforming_funds / total_balance * 100) if total_balance > 0 else 0
+        
+        # Calculate rate metrics
+        average_rate = weighted_avg_rate
+        rate_gap = best_available_rate - average_rate
+        potential_monthly_increase = best_monthly_interest - monthly_interest
+        
+        # Prepare underperforming accounts list
+        underperforming_accounts = []
+        for _, row in portfolio_df[underperforming_mask].iterrows():
+            annual_loss = (row['balance'] * (best_available_rate - row['rate'])) / 100
+            maturity_date = row.get('maturity_date', '')
+            if pd.isna(maturity_date):
+                maturity_date = ''
+            else:
+                try:
+                    maturity_date = pd.to_datetime(maturity_date).strftime('%Y-%m-%d')
+                except:
+                    maturity_date = str(maturity_date)
+            
+            underperforming_accounts.append({
+                'name': row['account'],
+                'description': row.get('description', ''),
+                'holder': row['holder'],
+                'product_type': row['product_type'],
+                'current_rate': row['rate'],
+                'best_rate': best_available_rate,
+                'balance': float(row['balance']),
+                'annual_loss': annual_loss,
+                'maturity_date': maturity_date,
+                'recommendation': f"Consider reallocating to a {best_available_rate}% CD"
+            })
+        
+        # Prepare rate analysis by term
+        term_ranges = {
+            'Short Term (1-3 months)': (1, 3),
+            'Mid Term (4-6 months)': (4, 6),
+            'Long Term (7-12 months)': (7, 12)
+        }
+        
+        rate_analysis = []
+        for term_name, (min_term, max_term) in term_ranges.items():
+            term_mask = portfolio_df['term'].between(min_term, max_term)
+            term_data = portfolio_df[term_mask]
+            
+            if not term_data.empty:
+                term_balance = term_data['balance'].sum()
+                term_avg_rate = (term_data['balance'] * term_data['rate']).sum() / term_balance if term_balance > 0 else 0
+                
+                # Get best rate for this term range
+                term_best_rate = max((rate for term, rate in best_rates.items() 
+                                    if min_term <= int(term.split()[0]) <= max_term), default=0)
+                
+                term_underperforming = term_data[term_data['rate'] < term_best_rate]['balance'].sum()
+                potential_increase = (term_underperforming * (term_best_rate - term_avg_rate)) / 100
+                
+                rate_analysis.append({
+                    'name': term_name,
+                    'current_avg_rate': term_avg_rate,
+                    'best_rate': term_best_rate,
+                    'current_balance': term_balance,
+                    'underperforming_funds': term_underperforming,
+                    'potential_increase': potential_increase
+                })
+        
+        # Prepare chart data
+        rate_chart = {
+            'labels': [term['name'] for term in rate_analysis],
+            'current_rates': [term['current_avg_rate'] for term in rate_analysis],
+            'best_rates': [term['best_rate'] for term in rate_analysis]
+        }
+        
+        # Prepare maturity distribution data
+        try:
+            portfolio_df['maturity_date'] = pd.to_datetime(portfolio_df['maturity_date'], errors='coerce')
+            maturity_bins = pd.date_range(start=pd.Timestamp.now(), periods=13, freq='ME')
+            maturity_dist = pd.cut(portfolio_df['maturity_date'], bins=maturity_bins)
+            maturity_amounts = portfolio_df.groupby(maturity_dist)['balance'].sum()
+            
+            maturity_chart = {
+                'labels': [d.strftime('%b %Y') for d in maturity_bins[:-1]],
+                'amounts': maturity_amounts.tolist()
+            }
+        except Exception as e:
+            logger.warning(f"Error processing maturity dates: {str(e)}")
+            maturity_chart = {
+                'labels': [],
+                'amounts': []
+            }
+        
+        # Prepare non-partner distribution data
+        non_partner_df = portfolio_df[non_partner_mask].groupby('holder')['balance'].sum()
+        
+        non_partner_chart = {
+            'labels': non_partner_df.index.tolist(),
+            'balances': non_partner_df.values.tolist()
+        }
+        
+        conn.close()
+        
+        return {
+            'non_partner_funds': non_partner_funds,
+            'non_partner_change': non_partner_pct,
+            'non_partner_change_direction': 'down',  # Always down as we want to reduce non-partner funds
+            'non_partner_change_display': non_partner_pct,
+            'underperforming_funds': underperforming_funds,
+            'underperforming_change': underperforming_pct,
+            'underperforming_change_direction': 'down',  # Always down as we want to reduce underperforming
+            'underperforming_change_display': underperforming_pct,
+            'average_rate': average_rate,
+            'rate_change': abs(rate_gap),
+            'rate_change_direction': 'up',  # Always up as we're showing potential improvement
+            'rate_change_display': abs(rate_gap),
+            'potential_rate_increase': rate_gap,
+            'current_monthly_interest': monthly_interest,
+            'best_monthly_interest': best_monthly_interest,
+            'monthly_interest_increase': potential_monthly_increase,
+            'current_annual_interest': annual_interest,
+            'best_annual_interest': best_annual_interest,
+            'annual_interest_increase': best_annual_interest - annual_interest,
+            'underperforming': underperforming_accounts,
+            'rate_analysis': rate_analysis,
+            'rate_chart': rate_chart,
+            'maturity_chart': maturity_chart,
+            'non_partner_chart': non_partner_chart,
+            'total_balance': total_balance,
+            'total_accounts': len(portfolio_df),
+            'accounts_underperforming': len(underperforming_accounts),
+            'accounts_in_non_partner': len(non_partner_df)
+        }
+        
+    except Exception as e:
+        logger.exception("Error analyzing portfolio")
+        raise ValueError(f"Error analyzing portfolio: {str(e)}")
+
+def export_analysis_report(analysis_results: Dict[str, Any]) -> bytes:
+    """
+    Generate a detailed Excel report from the analysis results.
+    
+    Args:
+        analysis_results: Dictionary containing analysis results
+    
+    Returns:
+        Excel file as bytes
+    """
+    try:
+        output = io.BytesIO()
+        
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Summary Sheet
+            summary_data = {
+                'Metric': ['Total Balance', 'Monthly Interest', 'Annual Interest', 'Average Rate'],
+                'Current': [
+                    f"${analysis_results['total_balance']:,.2f}",
+                    f"${analysis_results['current_monthly_interest']:,.2f}",
+                    f"${analysis_results['current_annual_interest']:,.2f}",
+                    f"{analysis_results['average_rate']:.3f}%"
+                ],
+                'Best Available': [
+                    f"${analysis_results['total_balance']:,.2f}",
+                    f"${analysis_results['best_monthly_interest']:,.2f}",
+                    f"${analysis_results['best_annual_interest']:,.2f}",
+                    f"{analysis_results['average_rate'] + analysis_results['potential_rate_increase']:.3f}%"
+                ],
+                'Potential Improvement': [
+                    '-',
+                    f"+${analysis_results['monthly_interest_increase']:,.2f}",
+                    f"+${analysis_results['annual_interest_increase']:,.2f}",
+                    f"+{analysis_results['potential_rate_increase']:.3f}%"
+                ]
+            }
+            pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
+            
+            # Portfolio Overview Sheet
+            overview_data = {
+                'Metric': [
+                    'Total Portfolio Balance',
+                    'Total Number of Accounts',
+                    'Non-Partner Bank Funds',
+                    'Accounts in Non-Partner Banks',
+                    'Underperforming Funds',
+                    'Underperforming Accounts',
+                    'Current Average Rate',
+                    'Best Available Rate',
+                    'Current Monthly Interest',
+                    'Potential Monthly Interest',
+                    'Monthly Interest Increase'
+                ],
+                'Value': [
+                    f"${analysis_results['total_balance']:,.2f}",
+                    analysis_results['total_accounts'],
+                    f"${analysis_results['non_partner_funds']:,.2f} ({analysis_results['non_partner_change']:.1f}%)",
+                    analysis_results['accounts_in_non_partner'],
+                    f"${analysis_results['underperforming_funds']:,.2f} ({analysis_results['underperforming_change']:.1f}%)",
+                    analysis_results['accounts_underperforming'],
+                    f"{analysis_results['average_rate']:.3f}%",
+                    f"{analysis_results['average_rate'] + analysis_results['potential_rate_increase']:.3f}%",
+                    f"${analysis_results['current_monthly_interest']:,.2f}",
+                    f"${analysis_results['best_monthly_interest']:,.2f}",
+                    f"${analysis_results['monthly_interest_increase']:,.2f}"
+                ]
+            }
+            pd.DataFrame(overview_data).to_excel(writer, sheet_name='Portfolio Overview', index=False)
+            
+            # Underperforming Accounts Sheet
+            if analysis_results['underperforming']:
+                underperforming_df = pd.DataFrame(analysis_results['underperforming'])
+                underperforming_df = underperforming_df[[
+                    'name', 'holder', 'product_type', 'current_rate', 'best_rate',
+                    'balance', 'annual_loss', 'maturity_date', 'recommendation'
+                ]]
+                underperforming_df.columns = [
+                    'Account', 'Bank/Holder', 'Product Type', 'Current Rate', 'Best Rate',
+                    'Balance', 'Annual Loss', 'Maturity Date', 'Recommendation'
+                ]
+                underperforming_df.to_excel(writer, sheet_name='Underperforming Accounts', index=False)
+            
+            # Rate Analysis Sheet
+            if analysis_results['rate_analysis']:
+                rate_analysis_df = pd.DataFrame(analysis_results['rate_analysis'])
+                rate_analysis_df = rate_analysis_df[[
+                    'name', 'current_avg_rate', 'best_rate', 'current_balance',
+                    'underperforming_funds', 'potential_increase'
+                ]]
+                rate_analysis_df.columns = [
+                    'Term', 'Current Avg Rate', 'Best Rate', 'Current Balance',
+                    'Underperforming Funds', 'Potential Annual Increase'
+                ]
+                rate_analysis_df.to_excel(writer, sheet_name='Rate Analysis', index=False)
+            
+            # Apply formatting
+            workbook = writer.book
+            
+            # Format all sheets
+            for sheet_name in writer.sheets:
+                sheet = writer.sheets[sheet_name]
+                
+                # Set column widths
+                for col in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']:
+                    if col in sheet.column_dimensions:
+                        sheet.column_dimensions[col].width = 20
+                
+                # Add header style
+                header_style = openpyxl.styles.NamedStyle(name=f'header_{sheet_name}')
+                header_style.font = openpyxl.styles.Font(bold=True)
+                header_style.fill = openpyxl.styles.PatternFill(
+                    start_color='f1f8ff',
+                    end_color='f1f8ff',
+                    fill_type='solid'
+                )
+                
+                # Apply header style to first row
+                for cell in sheet[1]:
+                    cell.style = header_style
+                
+                # Add number formatting
+                for row in sheet.iter_rows(min_row=2):
+                    for cell in row:
+                        if isinstance(cell.value, str):
+                            if cell.value.startswith('$'):
+                                cell.alignment = openpyxl.styles.Alignment(horizontal='right')
+                            elif '%' in cell.value:
+                                cell.alignment = openpyxl.styles.Alignment(horizontal='right')
+        
+        output.seek(0)
+        return output.getvalue()
+        
+    except Exception as e:
+        logger.exception("Error generating analysis report")
+        raise Exception(f"Error generating analysis report: {str(e)}")
+
+def get_db_connection() -> sqlite3.Connection:
+    """
+    Get a connection to the langston.db database.
+    
+    Returns:
+        sqlite3.Connection: Database connection object
+        
+    Raises:
+        Exception: If database connection fails
+    """
+    try:
+        db_path = Path(__file__).parent.parent / "data" / "langston.db"
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row  # Enable row factory for named columns
+        return conn
+        
+    except Exception as e:
+        logger.error(f"Error connecting to database: {str(e)}")
+        raise 

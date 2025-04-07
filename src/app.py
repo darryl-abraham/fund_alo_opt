@@ -14,6 +14,8 @@ import sqlite3
 from flask import g
 import math
 import numpy as np
+from werkzeug.utils import secure_filename
+from flask_session import Session
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,7 +29,20 @@ template_dir = project_root / 'templates'
 # Configure Flask app
 app = Flask(__name__, template_folder=str(template_dir))
 app.secret_key = os.environ.get('SECRET_KEY', str(uuid.uuid4()))
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload (kept for future use)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
+
+# Configure Flask-Session
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = os.path.join(current_dir, 'flask_session')
+app.config['SESSION_FILE_THRESHOLD'] = 100  # Number of files to store before cleanup
+Session(app)
+
+# Configure upload folder
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+
+# Create required directories
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
 
 # Add abs filter to Jinja2 environment
 app.jinja_env.filters['abs'] = abs
@@ -661,180 +676,106 @@ def admin_change_password():
 @app.route('/admin/analysis')
 @admin_required
 def admin_analysis():
-    """Generate analysis dashboard for fund allocation."""
+    """Admin analysis dashboard"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Get non-partner bank analysis
-        non_partner_query = """
-        SELECT 
-            t.holder as bank_name,
-            COALESCE(SUM(t.current_balance), 0) as balance,
-            COALESCE(t.investment_rate, 0) as current_rate,
-            COALESCE(MAX(cr.cd_rate), 0) as best_partner_rate
-        FROM test_data t
-        LEFT JOIN branch_relationships br ON 
-            LOWER(REPLACE(br.branch_name, '_', ' ')) = LOWER(REPLACE(t.holder, '_', ' '))
-        LEFT JOIN cd_rates cr ON 1=1
-        WHERE br.branch_name IS NULL
-        GROUP BY t.holder, t.investment_rate
-        """
-        cursor.execute(non_partner_query)
-        bank_data_raw = cursor.fetchall()
+        # Get analysis results from session if available
+        analysis_results = session.get('analysis_results')
         
-        # Format bank data with calculated potential increase
-        bank_data = []
-        for bank in bank_data_raw:
-            best_rate = float(bank['best_partner_rate'] or 0)
-            current_rate = float(bank['current_rate'] or 0)
-            balance = float(bank['balance'] or 0)
-            
-            # Calculate potential increase
-            rate_diff = max(best_rate - current_rate, 0)
-            potential_increase = balance * rate_diff / 100
-            
-            bank_data.append({
-                'name': bank['bank_name'],
-                'balance': balance,
-                'current_rate': current_rate,
-                'best_partner_rate': best_rate,
-                'potential_increase': potential_increase
-            })
+        # Log the analysis results for debugging
+        if analysis_results:
+            logger.info("Analysis results found in session")
+            logger.debug(f"Analysis results: {analysis_results}")
+        else:
+            logger.info("No analysis results found in session")
         
-        # Calculate metrics
-        cursor.execute("SELECT COALESCE(SUM(current_balance), 0) as total FROM test_data")
-        total_funds = cursor.fetchone()['total']
-        
-        non_partner_funds = sum(bank['balance'] for bank in bank_data)
-        non_partner_pct = (non_partner_funds / total_funds * 100) if total_funds > 0 else 0
-        
-        # Calculate total potential increase and underperforming funds from actual data
-        total_potential_increase = sum(bank['potential_increase'] for bank in bank_data)
-        underperforming_funds = sum(bank['balance'] for bank in bank_data if bank['best_partner_rate'] > bank['current_rate'])
-        
-        # Calculate potential rate increase
-        potential_rate_increase = (total_potential_increase / total_funds * 100) if total_funds > 0 else 0
-        
-        # Calculate changes between current and optimized states
-        # For non-partner funds, the change is the potential reduction
-        non_partner_change = -non_partner_pct  # Negative because we want to reduce non-partner funds
-        non_partner_change_display = abs(non_partner_change)
-        non_partner_change_direction = 'down'  # We want to reduce non-partner funds
-        
-        # Get rate analysis by term
-        rate_query = """
-        SELECT 
-            CASE 
-                WHEN cd_term LIKE '%1 month%' OR cd_term LIKE '%2 month%' OR cd_term LIKE '%3 month%' 
-                THEN 'Short Term (1-3 months)'
-                WHEN cd_term LIKE '%4 month%' OR cd_term LIKE '%5 month%' OR cd_term LIKE '%6 month%' 
-                THEN 'Mid Term (4-6 months)'
-                ELSE 'Long Term (7-12 months)'
-            END as term_category,
-            COALESCE(AVG(cd_rate), 0) as avg_rate,
-            COALESCE(MAX(cd_rate), 0) as max_rate
-        FROM cd_rates
-        GROUP BY term_category
-        """
-        cursor.execute(rate_query)
-        rate_data = cursor.fetchall()
-        
-        # Calculate average rate from actual data
-        cursor.execute("SELECT COALESCE(AVG(investment_rate), 0) as avg_rate FROM test_data")
-        average_rate = cursor.fetchone()['avg_rate']
-        
-        # Calculate potential rate increase
-        rate_change = potential_rate_increase  # This is the potential increase from optimization
-        rate_change_display = rate_change
-        rate_change_direction = 'up'  # We want to increase rates
-        
-        # Calculate potential reduction in underperforming funds
-        underperforming_change = -100  # 100% reduction is possible through optimization
-        underperforming_change_display = abs(underperforming_change)
-        underperforming_change_direction = 'down'  # We want to reduce underperforming funds
-        
-        # Get maturity analysis
-        maturity_query = """
-        SELECT 
-            strftime('%Y-%m', maturity_date) as date,
-            COALESCE(SUM(current_balance), 0) as amount
-        FROM test_data
-        WHERE maturity_date IS NOT NULL
-        AND maturity_date != ''
-        AND maturity_date != 'NULL'
-        GROUP BY strftime('%Y-%m', maturity_date)
-        ORDER BY date
-        LIMIT 12
-        """
-        cursor.execute(maturity_query)
-        maturity_data = cursor.fetchall()
-
-        # Prepare chart data
-        non_partner_chart = {
-            'labels': [bank['name'] for bank in bank_data],
-            'balances': [bank['balance'] for bank in bank_data]
-        }
-        
-        rate_chart = {
-            'labels': [row['term_category'] for row in rate_data],
-            'current_rates': [float(row['avg_rate'] or 0) for row in rate_data],
-            'best_rates': [float(row['max_rate'] or 0) for row in rate_data]
-        }
-        
-        maturity_chart = {
-            'labels': [row['date'] for row in maturity_data],
-            'amounts': [float(row['amount'] or 0) for row in maturity_data]
-        }
-
-        # Prepare term analysis data
-        rate_analysis = []
-        num_terms = len(rate_data)
-        if num_terms > 0:
-            per_term_underperforming = underperforming_funds / num_terms
-            per_term_potential = total_potential_increase / num_terms
-            
-            for row in rate_data:
-                term_data = {
-                    'name': row['term_category'],
-                    'current_avg_rate': float(row['avg_rate'] or 0),
-                    'best_rate': float(row['max_rate'] or 0),
-                    'underperforming_funds': per_term_underperforming,
-                    'potential_increase': per_term_potential
-                }
-                rate_analysis.append(term_data)
-
-        conn.close()
-
-        return render_template('admin/analysis.html',
-            total_funds=total_funds,
-            non_partner_funds=non_partner_funds,
-            non_partner_pct=non_partner_pct,
-            non_partner_change=non_partner_change,
-            non_partner_change_display=non_partner_change_display,
-            non_partner_change_direction=non_partner_change_direction,
-            underperforming_funds=underperforming_funds,
-            underperforming_change=underperforming_change,
-            underperforming_change_display=underperforming_change_display,
-            underperforming_change_direction=underperforming_change_direction,
-            average_rate=average_rate,
-            rate_change=rate_change,
-            rate_change_display=rate_change_display,
-            rate_change_direction=rate_change_direction,
-            potential_rate_increase=potential_rate_increase,
-            non_partner_analysis=bank_data,
-            rate_analysis=rate_analysis,
-            non_partner_chart=non_partner_chart,
-            rate_chart=rate_chart,
-            maturity_chart=maturity_chart
+        return render_template(
+            'admin/analysis.html',
+            analysis_results=analysis_results
         )
         
     except Exception as e:
-        logger.exception("Error generating analysis:")
-        if 'conn' in locals():
-            conn.close()
-        flash('Error generating analysis: ' + str(e), 'error')
+        logger.exception("Error in admin analysis")
+        flash(f"Error: {str(e)}", 'error')
         return redirect(url_for('admin_dashboard'))
+
+@app.route('/analyze_excel', methods=['POST'])
+def analyze_excel():
+    """Handle Excel file upload and perform analysis using database rates"""
+    try:
+        # Check if portfolio file was uploaded
+        if 'portfolio_file' not in request.files:
+            return jsonify({'success': False, 'message': 'Please upload a portfolio file'})
+        
+        portfolio_file = request.files['portfolio_file']
+        
+        # Check if file is selected
+        if portfolio_file.filename == '':
+            return jsonify({'success': False, 'message': 'No file selected'})
+        
+        # Check if file is an Excel file
+        if not (portfolio_file.filename.endswith('.xlsx') or portfolio_file.filename.endswith('.xls')):
+            return jsonify({'success': False, 'message': 'Please upload a valid Excel file'})
+        
+        # Create uploads directory if it doesn't exist
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        
+        # Save file temporarily with secure filename
+        filename = secure_filename(portfolio_file.filename)
+        portfolio_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        portfolio_file.save(portfolio_path)
+        
+        try:
+            # Read and analyze the file using database rates
+            analysis_results = optimizer.analyze_portfolio(portfolio_path=portfolio_path)
+            
+            # Store results in session for display
+            session['analysis_results'] = analysis_results
+            
+            # Log success
+            logger.info(f"Successfully analyzed portfolio file: {filename}")
+            logger.debug(f"Analysis results: {analysis_results}")
+            
+            return jsonify({'success': True})
+            
+        except Exception as e:
+            logger.exception("Error analyzing portfolio")
+            return jsonify({'success': False, 'message': f"Error analyzing portfolio: {str(e)}"})
+            
+        finally:
+            # Clean up temporary file
+            try:
+                if os.path.exists(portfolio_path):
+                    os.remove(portfolio_path)
+            except Exception as e:
+                logger.warning(f"Error removing temporary file: {str(e)}")
+        
+    except Exception as e:
+        logger.exception("Error in Excel analysis")
+        return jsonify({'success': False, 'message': f"Error processing file: {str(e)}"})
+
+@app.route('/download_analysis_report')
+def download_analysis_report():
+    """Generate and download detailed analysis report"""
+    try:
+        if 'analysis_results' not in session:
+            flash('No analysis results available', 'error')
+            return redirect(url_for('admin_analysis'))
+        
+        # Generate Excel report from analysis results
+        analysis_results = session['analysis_results']
+        excel_data = optimizer.export_analysis_report(analysis_results)
+        
+        return send_file(
+            io.BytesIO(excel_data),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name='Portfolio_Analysis_Report.xlsx'
+        )
+        
+    except Exception as e:
+        logger.exception("Error generating analysis report")
+        flash(f"Error generating report: {str(e)}", 'error')
+        return redirect(url_for('admin_analysis'))
 
 def init_db():
     """
