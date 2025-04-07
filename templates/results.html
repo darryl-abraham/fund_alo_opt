@@ -24,6 +24,18 @@
                                     <td>{{ params.branch_name }}</td>
                                 </tr>
                                 <tr>
+                                    <th>Bank Relationships</th>
+                                    <td>
+                                        {% if related_banks %}
+                                            {% for bank in related_banks %}
+                                                <span class="badge bg-primary me-1">{{ bank }}</span>
+                                            {% endfor %}
+                                        {% else %}
+                                            <span class="text-muted">No bank relationships found</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
                                     <th>Association Name</th>
                                     <td>{{ params.association_name }}</td>
                                 </tr>
@@ -36,7 +48,42 @@
                     </div>
                 </div>
 
-                <!-- New Account Overview Section -->
+                <!-- Fund Allocation Adjustment Section -->
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <div class="card border-primary">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="bi bi-sliders"></i> Fund Allocation Adjustment</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="reoptimizeForm" action="{{ url_for('reoptimize') }}" method="POST">
+                                    <div class="row align-items-center">
+                                        <div class="col-md-6">
+                                            <div class="input-group">
+                                                <span class="input-group-text">$</span>
+                                                <input type="text" 
+                                                       class="form-control" 
+                                                       id="allocationInput" 
+                                                       name="allocation_amount" 
+                                                       value="{{ '{:,.0f}'.format(results.summary.total_allocated) }}"
+                                                       data-max="{{ results.summary.total_funds }}">
+                                            </div>
+                                            <div class="form-text">Available: ${{ '{:,.2f}'.format(results.summary.total_funds) }}</div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="bi bi-arrow-repeat"></i> Reoptimize with New Amount
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- End of Fund Allocation Adjustment Section -->
+                
+                <!-- Account Overview Section -->
                 <div class="row mb-4">
                     <div class="col-md-12">
                         <h5 class="mb-3">Account Overview</h5>
@@ -45,18 +92,18 @@
                                 <div class="row">
                                     <div class="col-md-6 border-end">
                                         <h6 class="text-primary mb-3">Initial Account Balance</h6>
-                                        <h3 class="text-dark mb-2">${{ '{:,.2f}'.format(results.summary.total_funds) }}</h3>
+                                        <h3 class="text-dark mb-2" id="initialBalance" data-total-funds="{{ results.summary.total_funds }}">${{ '{:,.2f}'.format(results.summary.total_funds) }}</h3>
                                         <p class="text-muted mb-0">Available for Investment</p>
                                     </div>
                                     <div class="col-md-6">
                                         <h6 class="text-primary mb-3">Current Investment Status</h6>
                                         <div class="d-flex justify-content-between align-items-start">
                                             <div class="text-center flex-grow-1">
-                                                <h3 class="text-dark mb-2">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</h3>
+                                                <h3 class="text-dark mb-2" id="allocatedAmount">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</h3>
                                                 <p class="text-muted mb-0">Allocated for Investment</p>
                                             </div>
                                             <div class="border-start ps-4 text-center flex-grow-1">
-                                                <h3 class="text-dark mb-2">${{ '{:,.2f}'.format(results.summary.total_funds - results.summary.total_allocated) }}</h3>
+                                                <h3 class="text-dark mb-2" id="remainingBalance">${{ '{:,.2f}'.format(results.summary.total_funds - results.summary.total_allocated) }}</h3>
                                                 <p class="text-muted mb-0">Remaining Balance</p>
                                             </div>
                                         </div>
@@ -68,6 +115,7 @@
                 </div>
                 <!-- End of Account Overview Section -->
                 
+                <!-- Allocation Summary Section -->
                 <div class="row mb-4">
                     <div class="col-md-12">
                         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -82,7 +130,7 @@
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
                                         <h6 class="card-title text-muted">Total Allocated</h6>
-                                        <h4 class="card-text">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</h4>
+                                        <h4 class="card-text" id="summaryTotalAllocated">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</h4>
                                     </div>
                                 </div>
                             </div>
@@ -90,7 +138,7 @@
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
                                         <h6 class="card-title text-muted">Expected Return</h6>
-                                        <h4 class="card-text">${{ '{:,.2f}'.format(results.summary.total_return) }}</h4>
+                                        <h4 class="card-text" id="summaryExpectedReturn">${{ '{:,.2f}'.format(results.summary.total_return) }}</h4>
                                     </div>
                                 </div>
                             </div>
@@ -98,14 +146,16 @@
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
                                         <h6 class="card-title text-muted">Weighted Avg. Rate</h6>
-                                        <h4 class="card-text">{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}%</h4>
+                                        <h4 class="card-text" id="summaryAvgRate">{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}%</h4>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+                <!-- End of Allocation Summary Section -->
                 
+                <!-- Detailed Allocation Section -->
                 <div class="row">
                     <div class="col-md-12">
                         <h5>Detailed Allocation</h5>
@@ -120,7 +170,7 @@
                                         <th>Expected Return</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="allocationTableBody">
                                     {% for item in results.results %}
                                     <tr>
                                         <td>{{ item['Bank Name'] }}</td>
@@ -135,15 +185,16 @@
                                     <tr>
                                         <th>TOTAL</th>
                                         <th></th>
-                                        <th>${{ '{:,.2f}'.format(results.summary.total_allocated) }}</th>
-                                        <th>{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}</th>
-                                        <th>${{ '{:,.2f}'.format(results.summary.total_return) }}</th>
+                                        <th id="tableTotalAllocated">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</th>
+                                        <th id="tableAvgRate">{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}</th>
+                                        <th id="tableTotalReturn">${{ '{:,.2f}'.format(results.summary.total_return) }}</th>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
                     </div>
                 </div>
+                <!-- End of Detailed Allocation Section -->
                 
                 <div class="d-flex justify-content-between mt-4">
                     <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
@@ -198,6 +249,10 @@ const templateData = {
     totalAllocated: Number('{{ results.summary.total_allocated|safe }}')
 };
 
+// Global variables to store chart instances
+let pieChart = null;
+let barChart = null;
+
 document.addEventListener('DOMContentLoaded', function() {
     // Prepare data for allocation pie chart
     const bankData = {};
@@ -224,7 +279,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Create pie chart
     const pieCtx = document.getElementById('allocationPieChart').getContext('2d');
-    new Chart(pieCtx, {
+    pieChart = new Chart(pieCtx, {
         type: 'pie',
         data: {
             labels: bankNames,
@@ -272,7 +327,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Create bar chart
     const barCtx = document.getElementById('termsBarChart').getContext('2d');
-    new Chart(barCtx, {
+    barChart = new Chart(barCtx, {
         type: 'bar',
         data: {
             labels: terms,
@@ -311,6 +366,193 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         }
+    });
+});
+
+// Function to update charts with new data
+function updateCharts(newAllocation) {
+    if (!pieChart || !barChart) {
+        console.error('Charts not initialized');
+        return;
+    }
+    
+    const ratio = newAllocation / templateData.totalAllocated;
+    
+    // Update pie chart data
+    const newBankData = {};
+    templateData.allocationData.forEach(item => {
+        const bankName = item['Bank Name'];
+        if (!newBankData[bankName]) {
+            newBankData[bankName] = 0;
+        }
+        newBankData[bankName] += item['Allocated Amount'] * ratio;
+    });
+    
+    pieChart.data.datasets[0].data = Object.values(newBankData);
+    pieChart.update();
+
+    // Update bar chart data
+    const newTermData = {};
+    templateData.allocationData.forEach(item => {
+        const term = item['CD Term'];
+        if (!newTermData[term]) {
+            newTermData[term] = 0;
+        }
+        newTermData[term] += item['Allocated Amount'] * ratio;
+    });
+    
+    barChart.data.datasets[0].data = Object.values(newTermData);
+    barChart.update();
+}
+</script>
+
+<script>
+// Allocation adjustment functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const allocationInput = document.getElementById('allocationInput');
+    const maxAmount = parseFloat(allocationInput.dataset.max);
+    const totalFunds = parseFloat(document.getElementById('initialBalance').dataset.totalFunds);
+
+    // Format number with commas and no decimal places
+    function formatNumber(num) {
+        return new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(Math.round(num));
+    }
+
+    // Parse number string removing commas
+    function parseFormattedNumber(str) {
+        return parseFloat(str.replace(/,/g, ''));
+    }
+
+    // Format initial value
+    allocationInput.value = formatNumber(parseFormattedNumber(allocationInput.value));
+
+    allocationInput.addEventListener('input', function(e) {
+        let value = e.target.value.replace(/[^\d,]/g, '');
+        let number = parseFormattedNumber(value);
+        
+        if (!isNaN(number)) {
+            if (number < 0) {
+                number = 0;
+            }
+            e.target.value = formatNumber(number);
+        }
+    });
+
+    // Handle form submission
+    document.getElementById('reoptimizeForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const allocationValue = parseFormattedNumber(allocationInput.value);
+        
+        if (allocationValue <= 0) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3';
+            alertDiv.innerHTML = `
+                <strong>Error!</strong> Please enter a number greater than 0.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            this.parentElement.appendChild(alertDiv);
+            setTimeout(() => alertDiv.remove(), 5000);
+            return;
+        }
+        
+        formData.set('allocation_amount', allocationValue);
+        
+        // Show loading state
+        const submitButton = this.querySelector('button[type="submit"]');
+        const originalButtonText = submitButton.innerHTML;
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Reoptimizing...';
+        
+        // Send AJAX request
+        fetch('{{ url_for("reoptimize") }}', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update Account Overview
+                document.getElementById('allocatedAmount').textContent = '$' + formatNumber(data.summary.total_allocated);
+                document.getElementById('remainingBalance').textContent = '$' + formatNumber(totalFunds - data.summary.total_allocated);
+                
+                // Update Allocation Summary
+                document.getElementById('summaryTotalAllocated').textContent = '$' + formatNumber(data.summary.total_allocated);
+                document.getElementById('summaryExpectedReturn').textContent = '$' + formatNumber(data.summary.total_return);
+                document.getElementById('summaryAvgRate').textContent = data.summary.weighted_avg_rate.toFixed(2) + '%';
+                
+                // Update Detailed Allocation Table
+                const tableBody = document.getElementById('allocationTableBody');
+                tableBody.innerHTML = '';
+                
+                // Update templateData with new allocations
+                templateData.allocationData = data.allocations;
+                templateData.totalAllocated = data.summary.total_allocated;
+                
+                data.allocations.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${item['Bank Name']}</td>
+                        <td>${item['CD Term']}</td>
+                        <td>$${formatNumber(item['Allocated Amount'])}</td>
+                        <td>${parseFloat(item['CD Rate']).toFixed(2)}%</td>
+                        <td>$${formatNumber(item['Expected Return'])}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+                
+                // Update table totals
+                document.getElementById('tableTotalAllocated').textContent = '$' + formatNumber(data.summary.total_allocated);
+                document.getElementById('tableAvgRate').textContent = data.summary.weighted_avg_rate.toFixed(2) + '%';
+                document.getElementById('tableTotalReturn').textContent = '$' + formatNumber(data.summary.total_return);
+                
+                // Update charts with new data
+                updateCharts(data.summary.total_allocated);
+                
+                // Show success message
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-success alert-dismissible fade show mt-3';
+                alertDiv.innerHTML = `
+                    <strong>Success!</strong> Optimization completed with new allocation amount.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                this.parentElement.appendChild(alertDiv);
+                
+                // Remove alert after 5 seconds
+                setTimeout(() => {
+                    alertDiv.remove();
+                }, 5000);
+            } else {
+                // Show error message
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3';
+                alertDiv.innerHTML = `
+                    <strong>Error!</strong> ${data.message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                this.parentElement.appendChild(alertDiv);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            // Show error message
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3';
+            alertDiv.innerHTML = `
+                <strong>Error!</strong> ${error.message || 'An unexpected error occurred. Please try again.'}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            this.parentElement.appendChild(alertDiv);
+        })
+        .finally(() => {
+            // Restore button state
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalButtonText;
+        });
     });
 });
 </script>

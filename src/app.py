@@ -186,10 +186,22 @@ def web_optimize():
                 associations = db_utils.get_associations()
                 return render_template('index.html', branches=branches, associations=associations, params=params)
             
+            # Get branch relationships
+            branch_relationships = optimizer.get_branch_relationships(params['branch_name'])
+            related_banks = []
+            for bank_col in optimizer.BranchRelationshipsColumns.__dict__.values():
+                if isinstance(bank_col, str) and bank_col != optimizer.BranchRelationshipsColumns.BRANCH_NAME:
+                    try:
+                        if branch_relationships[bank_col].iloc[0] == 1:
+                            bank_name = bank_col.replace('_', ' ').title()
+                            related_banks.append(bank_name)
+                    except KeyError:
+                        continue
+            
             # Store results in session
             session['results'] = results
             
-            return render_template('results.html', results=results, params=params)
+            return render_template('results.html', results=results, params=params, related_banks=related_banks)
             
         except Exception as e:
             logger.exception("Error in web optimization")
@@ -200,6 +212,87 @@ def web_optimize():
     branches = db_utils.get_branches()
     associations = db_utils.get_associations()
     return render_template('index.html', branches=branches, associations=associations)
+
+@app.route('/reoptimize', methods=['POST'])
+def reoptimize():
+    """Reoptimize with a new allocation amount."""
+    try:
+        # Get the new allocation amount from the form
+        new_allocation = float(request.form.get('allocation_amount', 0))
+        logger.info(f"Received reoptimization request with allocation amount: {new_allocation}")
+        
+        # Get the original parameters from the session
+        if 'params' not in session:
+            logger.error("No optimization parameters found in session")
+            return jsonify({
+                'success': False,
+                'message': 'No optimization parameters found in session. Please start a new optimization.'
+            }), 400
+            
+        params = session['params'].copy()  # Make a copy to avoid modifying the original
+        logger.info(f"Retrieved parameters from session: {params}")
+        
+        # Validate the new allocation amount
+        if new_allocation <= 0:
+            logger.error(f"Invalid allocation amount: {new_allocation}")
+            return jsonify({
+                'success': False,
+                'message': 'Allocation amount must be greater than 0.'
+            }), 400
+            
+        # Add the new allocation amount to the parameters
+        params['allocation_amount'] = new_allocation
+        logger.info(f"Updated parameters with new allocation amount: {params}")
+        
+        # Run optimization with the new parameters
+        logger.info("Starting optimization with new parameters")
+        results = optimizer.run_optimization(params=params)
+        logger.info(f"Optimization completed with results: {results}")
+        
+        if not results['success']:
+            logger.error(f"Optimization failed: {results['message']}")
+            return jsonify({
+                'success': False,
+                'message': f"Reoptimization failed: {results['message']}"
+            }), 400
+            
+        # Store the new results in the session
+        session['results'] = results
+        logger.info("Stored new results in session")
+        
+        # Prepare the response data
+        response_data = {
+            'success': True,
+            'summary': {
+                'total_allocated': results['summary']['total_allocated'],
+                'total_return': results['summary']['total_return'],
+                'weighted_avg_rate': results['summary']['weighted_avg_rate'],
+                'remaining_balance': results['summary']['total_funds'] - results['summary']['total_allocated']
+            },
+            'allocations': results['results']
+        }
+        logger.info(f"Prepared response data: {response_data}")
+        
+        return jsonify(response_data)
+        
+    except ValueError as e:
+        logger.exception("ValueError in reoptimization:")
+        return jsonify({
+            'success': False,
+            'message': f"Invalid input format: {str(e)}"
+        }), 400
+    except KeyError as e:
+        logger.exception("KeyError in reoptimization:")
+        return jsonify({
+            'success': False,
+            'message': f"Missing required data: {str(e)}"
+        }), 400
+    except Exception as e:
+        logger.exception("Unexpected error in reoptimization:")
+        return jsonify({
+            'success': False,
+            'message': f"Error: {str(e)}"
+        }), 500
 
 @app.route('/download_results')
 def download_results():
