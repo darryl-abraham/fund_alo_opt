@@ -278,12 +278,7 @@ def reoptimize():
         # Prepare the response data
         response_data = {
             'success': True,
-            'summary': {
-                'total_allocated': results['summary']['total_allocated'],
-                'total_return': results['summary']['total_return'],
-                'weighted_avg_rate': results['summary']['weighted_avg_rate'],
-                'remaining_balance': results['summary']['total_funds'] - results['summary']['total_allocated']
-            },
+            'summary': results['summary'],
             'allocations': results['results']
         }
         logger.info(f"Prepared response data: {response_data}")
@@ -423,16 +418,16 @@ def admin_constraints():
         "SELECT * FROM constraints WHERE category = 'weighting' ORDER BY name",
         conn
     )
-    
-    # Get bank constraints
-    banks = pd.read_sql_query(
-        "SELECT * FROM constraints WHERE category = 'bank' ORDER BY name",
-        conn
-    )
 
     # Get liquidity constraints
     liquidity = pd.read_sql_query(
         "SELECT * FROM constraints WHERE category = 'liquidity' ORDER BY name",
+        conn
+    )
+    
+    # Get bank constraints
+    banks = pd.read_sql_query(
+        "SELECT * FROM constraints WHERE category = 'bank' ORDER BY name",
         conn
     )
     
@@ -994,6 +989,31 @@ def init_db_route():
         return "Database initialized successfully!"
     except Exception as e:
         return f"Error initializing database: {str(e)}", 500
+
+def get_associations_with_branches():
+    """
+    Get a list of associations with their corresponding branch names using the branch_association_index table.
+    
+    Returns:
+        list: A list of dictionaries with association and branch names
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        query = """
+        SELECT associations.association_name, branches.branch_name
+        FROM branch_association_index
+        JOIN associations ON branch_association_index.association_id = associations.id
+        JOIN branches ON branch_association_index.branch_id = branches.id
+        ORDER BY associations.association_name
+        """
+        cursor.execute(query)
+        associations = [{'association_name': row[0], 'branch_name': row[1]} for row in cursor.fetchall()]
+        conn.close()
+        return associations
+    except Exception as e:
+        logger.error(f"Error getting associations with branches: {str(e)}")
+        return []
 
 if __name__ == '__main__':
     # Get port from environment or use default

@@ -166,7 +166,7 @@ def get_all_data_for_optimization():
 
 def get_branches():
     """
-    Get a list of all unique branch names from the branch_relationships table
+    Get a list of all unique branch names from branch_association_index
     
     Returns:
         list: A list of unique branch names
@@ -174,30 +174,36 @@ def get_branches():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT branch_name FROM branch_relationships ORDER BY branch_name")
+        cursor.execute("SELECT DISTINCT branch_name FROM branch_association_index ORDER BY branch_name")
         branches = [row[0] for row in cursor.fetchall()]
         conn.close()
         return branches
     except Exception as e:
-        logger.error(f"Error getting branch names: {str(e)}")
+        logger.error(f"Error getting branches: {str(e)}")
         return []
 
 def get_associations():
     """
-    Get a list of all unique association names from the test_data table
+    Get associations and their mapped branches from branch_association_index
     
     Returns:
-        list: A list of unique association names
+        list: List of dictionaries with association_name and branch_name
     """
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT association_name FROM test_data ORDER BY association_name")
-        associations = [row[0] for row in cursor.fetchall()]
+        cursor.execute("""
+            SELECT DISTINCT 
+                association_name, 
+                branch_name 
+            FROM branch_association_index 
+            ORDER BY association_name
+        """)
+        associations = [{'association_name': row[0], 'branch_name': row[1]} for row in cursor.fetchall()]
         conn.close()
         return associations
     except Exception as e:
-        logger.error(f"Error getting association names: {str(e)}")
+        logger.error(f"Error getting associations: {str(e)}")
         return []
 
 def get_constraints():
