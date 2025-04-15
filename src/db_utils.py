@@ -14,6 +14,15 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 db_path = project_root / 'data' / 'langston.db'
 
+def get_db_path():
+    """
+    Get the path to the SQLite database file
+    
+    Returns:
+        str: Path to the database file
+    """
+    return str(db_path)
+
 def get_db_connection():
     """
     Create and return a connection to the SQLite database

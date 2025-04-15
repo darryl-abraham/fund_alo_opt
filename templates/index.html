@@ -62,7 +62,7 @@
                                             <select class="form-select" id="association_name" name="association_name" required>
                                                 <option value="">Select an association...</option>
                                                 {% for association in associations %}
-                                                    <option value="{{ association }}">{{ association }}</option>
+                                                    <option value="{{ association.association_name }}" data-branch="{{ association.branch_name }}">{{ association.association_name }}</option>
                                                 {% endfor %}
                                             </select>
                                             <div class="form-text">
@@ -94,7 +94,20 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Any JavaScript initialization can go here
+    const branchSelect = document.getElementById('branch_name');
+    const associationSelect = document.getElementById('association_name');
+    const allAssociations = Array.from(associationSelect.options);
+
+    branchSelect.addEventListener('change', function() {
+        const selectedBranch = this.value;
+        associationSelect.innerHTML = '';
+
+        const filteredAssociations = allAssociations.filter(option => 
+            option.getAttribute('data-branch') === selectedBranch || option.value === ''
+        );
+
+        filteredAssociations.forEach(option => associationSelect.appendChild(option));
+    });
 });
 </script>
 {% endblock %} 

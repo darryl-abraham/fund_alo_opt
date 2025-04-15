@@ -60,12 +60,13 @@ class ECRRatesColumns:
     BANK_CODE = 'bank_code'
     ECR_RATE = 'ecr_rate'
 
-def execute_sql_query(query: str) -> pd.DataFrame:
+def execute_sql_query(query: str, params: Optional[List[Any]] = None) -> pd.DataFrame:
     """
     Execute an SQL query on the database and return results as a DataFrame.
     
     Args:
         query: SQL query string
+        params: Optional list of parameters to use in the query
         
     Returns:
         DataFrame containing query results
@@ -79,7 +80,10 @@ def execute_sql_query(query: str) -> pd.DataFrame:
         conn = sqlite3.connect(db_path)
         
         # Execute query and return results as DataFrame
-        df = pd.read_sql_query(query, conn)
+        if params:
+            df = pd.read_sql_query(query, conn, params=params)
+        else:
+            df = pd.read_sql_query(query, conn)
         conn.close()
         return df
         
@@ -161,10 +165,12 @@ def get_branch_relationships(branch_name: Optional[str] = None) -> pd.DataFrame:
     FROM {TABLE_BRANCH_RELATIONSHIPS}
     """
     
+    params = []
     if branch_name:
-        query += f" WHERE {BranchRelationshipsColumns.BRANCH_NAME} = '{branch_name}'"
+        query += f" WHERE {BranchRelationshipsColumns.BRANCH_NAME} = ?"
+        params.append(branch_name)
     
-    return execute_sql_query(query)
+    return execute_sql_query(query, params)
 
 def get_investment_data(association_name: Optional[str] = None) -> pd.DataFrame:
     """
@@ -187,12 +193,14 @@ def get_investment_data(association_name: Optional[str] = None) -> pd.DataFrame:
     FROM {TABLE_TEST_DATA}
     """
     
+    params = []
     if association_name:
-        query += f" WHERE {TestDataColumns.ASSOCIATION_NAME} = '{association_name}'"
+        query += f" WHERE {TestDataColumns.ASSOCIATION_NAME} = ?"
+        params.append(association_name)
     
     query += f" ORDER BY {TestDataColumns.ASSOCIATION_NAME}"
     
-    return execute_sql_query(query)
+    return execute_sql_query(query, params)
 
 # Constants
 SHEET_BANK_RANKING = 'Bank Ranking'
@@ -296,6 +304,9 @@ def optimize_fund_allocation(
         - Float representing total funds available
     """
     try:
+        # Get ECR rates
+        ecr_rates = get_ecr_rates()
+        
         solver = pywraplp.Solver.CreateSolver('GLOP')
         if not solver:
             raise Exception("GLOP solver is not available.")
@@ -461,18 +472,9 @@ def optimize_fund_allocation(
                 
                 # Add ECR component if enabled
                 if ecr_weight > 0:
-                    try:
-                        ecr_query = f"""
-                        SELECT ecr_rate
-                        FROM {TABLE_ECR_RATES}
-                        WHERE {ECRRatesColumns.BANK_NAME} = '{bank}'
-                        """
-                        ecr_df = execute_sql_query(ecr_query)
-                        if not ecr_df.empty:
-                            ecr_rate = ecr_df[ECRRatesColumns.ECR_RATE].values[0] / 100
-                            composite_score += ecr_rate * ecr_weight
-                    except Exception as e:
-                        logger.warning(f"Error getting ECR rate for {bank}: {str(e)}")
+                    product_type = get_product_type(term)
+                    ecr_rate = ecr_rates.get((bank, product_type), 0)
+                    composite_score += ecr_rate * ecr_weight
                 
                 # Get product weight for CDs
                 product_weight = 0.0
@@ -515,6 +517,8 @@ def optimize_fund_allocation(
         
         # Create results with actual rates for reporting
         results = []
+        total_ecr = 0
+        
         for (bank, term), var in allocation.items():
             if var.solution_value() > 0:
                 allocated_amount = int(var.solution_value())
@@ -523,12 +527,20 @@ def optimize_fund_allocation(
                 term_months = float(term.split()[0])
                 expected_return = (allocated_amount * cd_rate * term_months) / (100 * 12)
                 
+                # Calculate ECR benefit
+                product_type = get_product_type(term)
+                ecr_rate = ecr_rates.get((bank, product_type), 0)
+                estimated_ecr = allocated_amount * ecr_rate / 1200
+                total_ecr += estimated_ecr
+                
                 results.append([
                     bank,
                     term,
                     allocated_amount,
                     cd_rate,
-                    expected_return
+                    expected_return,
+                    ecr_rate,
+                    estimated_ecr
                 ])
                   
         if not results:
@@ -543,7 +555,7 @@ def optimize_fund_allocation(
             logger.warning(filtered_rates[['CD Term', 'time_weight']].to_string())
             return pd.DataFrame(), total_funds
             
-        columns = ["Bank Name", "CD Term", "Allocated Amount", "CD Rate", "Expected Return"]
+        columns = ["Bank Name", "CD Term", "Allocated Amount", "CD Rate", "Expected Return", "ECR Rate", "Estimated ECR Monthly"]
         df = pd.DataFrame(results, columns=columns)
         
         summary_row = pd.DataFrame([[
@@ -551,7 +563,9 @@ def optimize_fund_allocation(
             "",
             df["Allocated Amount"].sum(),
             None,
-            df["Expected Return"].sum()
+            df["Expected Return"].sum(),
+            None,
+            total_ecr
         ]], columns=columns)
         
         final_df = pd.concat([df, summary_row], ignore_index=True)
@@ -561,6 +575,50 @@ def optimize_fund_allocation(
     except Exception as e:
         logger.error(f"Optimization error: {str(e)}")
         raise
+
+def get_ecr_rates() -> Dict[Tuple[str, str], float]:
+    """
+    Get ECR rates from the database for all bank-product combinations.
+    
+    Returns:
+        Dictionary mapping (bank_name, bank_code) tuples to ECR rates
+    """
+    try:
+        query = """
+        SELECT bank_name, bank_code, ecr_rate
+        FROM ecr_rates
+        WHERE ecr_rate IS NOT NULL
+        AND ecr_rate > 0
+        """
+        df = execute_sql_query(query)
+        
+        # Create mapping of (bank_name, bank_code) to ecr_rate
+        ecr_rates = {}
+        for _, row in df.iterrows():
+            ecr_rates[(row['bank_name'], row['bank_code'])] = float(row['ecr_rate'])
+            
+        return ecr_rates
+        
+    except Exception as e:
+        logger.error(f"Error getting ECR rates: {str(e)}")
+        return {}
+
+def get_product_type(term: str) -> str:
+    """
+    Determine product type based on CD Term string.
+    
+    Args:
+        term: CD Term string
+        
+    Returns:
+        Product type code ('CD', 'CDARS', or 'MM')
+    """
+    if 'CDARS' in term:
+        return 'CDARS'
+    elif 'MM' in term:
+        return 'MM'
+    else:
+        return 'CD'
 
 def get_current_portfolio(association_name: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
@@ -575,6 +633,10 @@ def get_current_portfolio(association_name: str) -> Tuple[List[Dict[str, Any]], 
         - Summary of current portfolio
     """
     try:
+        # Get ECR rates
+        ecr_rates = get_ecr_rates()
+        logger.info(f"Fetching current portfolio for association: {association_name}")
+        
         query = f"""
         SELECT 
             holder as bank,
@@ -587,31 +649,45 @@ def get_current_portfolio(association_name: str) -> Tuple[List[Dict[str, Any]], 
         AND current_balance > 0
         """
         
+        logger.debug(f"Executing query: {query}")
         df = execute_sql_query(query)
+        logger.info(f"Retrieved {len(df)} records for current portfolio.")
         
         if df.empty:
-            return [], {'total_balance': 0, 'monthly_interest': 0}
-            
+            logger.warning("No current portfolio data found.")
+            return [], {'total_balance': 0, 'monthly_interest': 0, 'monthly_ecr': 0}
+        
         current_portfolio = []
+        total_ecr = 0
+        
         for _, row in df.iterrows():
+            # Determine product type and get ECR rate
+            product_type = get_product_type(row['product_type'])
+            ecr_rate = ecr_rates.get((row['bank'], product_type), 0)
+            monthly_ecr = float(row['amount']) * ecr_rate / 1200
+            total_ecr += monthly_ecr
+            
             current_portfolio.append({
                 'bank': row['bank'],
                 'product_type': row['product_type'],
                 'amount': float(row['amount']),
                 'rate': float(row['rate']),
-                'monthly_interest': float(row['monthly_interest'])
+                'monthly_interest': float(row['monthly_interest']),
+                'ecr_rate': ecr_rate,
+                'monthly_ecr': monthly_ecr
             })
             
         summary = {
             'total_balance': sum(inv['amount'] for inv in current_portfolio),
-            'monthly_interest': sum(inv['monthly_interest'] for inv in current_portfolio)
+            'monthly_interest': sum(inv['monthly_interest'] for inv in current_portfolio),
+            'monthly_ecr': total_ecr
         }
         
         return current_portfolio, summary
         
     except Exception as e:
         logger.error(f"Error getting current portfolio: {str(e)}")
-        return [], {'total_balance': 0, 'monthly_interest': 0}
+        return [], {'total_balance': 0, 'monthly_interest': 0, 'monthly_ecr': 0}
 
 def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -699,7 +775,10 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
                 'total_allocated': summary['Allocated Amount'],
                 'total_return': summary['Expected Return'],
                 'weighted_avg_rate': summary['Expected Return'] * 100 / summary['Allocated Amount'] if summary['Allocated Amount'] > 0 else 0,
-                'total_funds': total_funds
+                'total_funds': total_funds,
+                'optimized_ecr_monthly': summary['Estimated ECR Monthly'],
+                'current_ecr_monthly': current_summary['monthly_ecr'],
+                'ecr_gain': summary['Estimated ECR Monthly'] - current_summary['monthly_ecr']
             },
             'bank_count': len(set(r['Bank Name'] for r in results)),
             'term_count': len(set(r['CD Term'] for r in results))

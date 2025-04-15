@@ -170,7 +170,7 @@
                         </div>
                         
                         <div class="row">
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
                                         <h6 class="card-title text-muted">Total Allocated</h6>
@@ -178,7 +178,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
                                         <h6 class="card-title text-muted">Expected Return</h6>
@@ -186,11 +186,20 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
                                         <h6 class="card-title text-muted">Weighted Avg. Rate</h6>
                                         <h4 class="card-text" id="summaryAvgRate">{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}%</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-muted">Monthly ECR Benefit</h6>
+                                        <h4 class="card-text" id="summaryECR">${{ '{:,.2f}'.format(results.summary.optimized_ecr_monthly) }}</h4>
+                                        <small class="text-muted">Gain: ${{ '{:,.2f}'.format(results.summary.ecr_gain) }}</small>
                                     </div>
                                 </div>
                             </div>
@@ -212,6 +221,8 @@
                                         <th>Allocated Amount</th>
                                         <th>CD Rate (%)</th>
                                         <th>Expected Return</th>
+                                        <th>ECR Rate (%)</th>
+                                        <th>ECR Monthly</th>
                                     </tr>
                                 </thead>
                                 <tbody id="allocationTableBody">
@@ -222,6 +233,8 @@
                                         <td>${{ '{:,.2f}'.format(item['Allocated Amount']) }}</td>
                                         <td>{{ '{:.2f}'.format(item['CD Rate']) }}</td>
                                         <td>${{ '{:,.2f}'.format(item['Expected Return']) }}</td>
+                                        <td>{{ '{:.2f}'.format(item['ECR Rate']) }}</td>
+                                        <td>${{ '{:,.2f}'.format(item['Estimated ECR Monthly']) }}</td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -232,6 +245,8 @@
                                         <th id="tableTotalAllocated">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</th>
                                         <th id="tableAvgRate">{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}</th>
                                         <th id="tableTotalReturn">${{ '{:,.2f}'.format(results.summary.total_return) }}</th>
+                                        <th></th>
+                                        <th id="tableTotalECR">${{ '{:,.2f}'.format(results.summary.optimized_ecr_monthly) }}</th>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -287,6 +302,20 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+// Format number as currency
+function formatCurrency(num) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2
+    }).format(num);
+}
+
+// Format number as percentage
+function formatRate(rate) {
+    return rate.toFixed(2) + '%';
+}
+
 // Initialize data from template
 const templateData = {
     allocationData: JSON.parse('{{ results.results|tojson|safe }}'),
@@ -528,6 +557,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('summaryTotalAllocated').textContent = '$' + formatNumber(data.summary.total_allocated);
                 document.getElementById('summaryExpectedReturn').textContent = '$' + formatNumber(data.summary.total_return);
                 document.getElementById('summaryAvgRate').textContent = data.summary.weighted_avg_rate.toFixed(2) + '%';
+                document.getElementById('summaryECR').textContent = '$' + formatNumber(data.summary.optimized_ecr_monthly);
+                document.getElementById('summaryECR').nextElementSibling.textContent = 'Gain: $' + formatNumber(data.summary.ecr_gain);
                 
                 // Update Detailed Allocation Table
                 const tableBody = document.getElementById('allocationTableBody');
@@ -542,17 +573,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     row.innerHTML = `
                         <td>${item['Bank Name']}</td>
                         <td>${item['CD Term']}</td>
-                        <td>$${formatNumber(item['Allocated Amount'])}</td>
-                        <td>${parseFloat(item['CD Rate']).toFixed(2)}%</td>
-                        <td>$${formatNumber(item['Expected Return'])}</td>
+                        <td>${formatCurrency(item['Allocated Amount'])}</td>
+                        <td>${formatRate(item['CD Rate'])}</td>
+                        <td>${formatCurrency(item['Expected Return'])}</td>
+                        <td>${formatRate(item['ECR Rate'])}</td>
+                        <td>${formatCurrency(item['Estimated ECR Monthly'])}</td>
                     `;
                     tableBody.appendChild(row);
                 });
                 
                 // Update table totals
-                document.getElementById('tableTotalAllocated').textContent = '$' + formatNumber(data.summary.total_allocated);
-                document.getElementById('tableAvgRate').textContent = data.summary.weighted_avg_rate.toFixed(2) + '%';
-                document.getElementById('tableTotalReturn').textContent = '$' + formatNumber(data.summary.total_return);
+                document.getElementById('tableTotalAllocated').textContent = formatCurrency(data.summary.total_allocated);
+                document.getElementById('tableAvgRate').textContent = formatRate(data.summary.weighted_avg_rate);
+                document.getElementById('tableTotalReturn').textContent = formatCurrency(data.summary.total_return);
+                document.getElementById('tableTotalECR').textContent = formatCurrency(data.summary.optimized_ecr_monthly);
                 
                 // Update charts with new data
                 updateCharts(data.summary.total_allocated);
