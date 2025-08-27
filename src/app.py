@@ -461,10 +461,22 @@ def admin_update_constraint():
     try:
         constraint_id = request.form.get('id')
         category = request.form.get('category')
-        is_enabled = request.form.get('is_enabled', '0') == '1'
-        value = float(request.form.get('value', 0))
+        
+        # Fix checkbox handling - checkboxes only send value when checked
+        # If 'is_enabled' is in form data, it means the checkbox was checked
+        is_enabled = 'is_enabled' in request.form
+        
+        # Convert value from percentage (0-100) to decimal (0-1) for storage
+        value_input = request.form.get('value', '0')
+        try:
+            value = float(value_input) / 100.0  # Convert percentage to decimal
+        except ValueError:
+            value = 0.0
+            
         weight = float(request.form.get('weight', 0))
         other_value = request.form.get('other_value')
+        
+        logger.info(f"Updating constraint {constraint_id}: enabled={is_enabled}, value={value}, weight={weight}")
         
         # Get the constraint from the database
         conn = get_db_connection()
@@ -502,6 +514,7 @@ def admin_update_constraint():
         flash('Constraint updated successfully.', 'success')
         return redirect(url_for('admin_constraints'))
     except Exception as e:
+        logger.error(f"Error updating constraint: {str(e)}")
         flash(f'Error updating constraint: {str(e)}', 'danger')
         return redirect(url_for('admin_constraints'))
 
@@ -512,12 +525,21 @@ def admin_update_category_weight():
     """Update weights for all constraints in a category."""
     try:
         category = request.form.get('category')
-        weight = float(request.form.get('weight', 1.0))
+        weight_input = request.form.get('weight', '1.0')
         
         # Validate inputs
-        if not category or weight < 0:
-            return 'Invalid input', 400
+        if not category:
+            return 'Invalid category', 400
             
+        try:
+            weight = float(weight_input)
+            if weight < 0:
+                return 'Weight must be non-negative', 400
+        except ValueError:
+            return 'Invalid weight value', 400
+            
+        logger.info(f"Updating category weight for {category}: {weight}")
+        
         # Get the database connection
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -535,6 +557,7 @@ def admin_update_category_weight():
         
         return 'Category weight updated successfully', 200
     except Exception as e:
+        logger.error(f"Error updating category weight: {str(e)}")
         return f'Error updating category weight: {str(e)}', 500
 
 @app.route('/admin/constraints/reset/<category>', methods=['POST'])

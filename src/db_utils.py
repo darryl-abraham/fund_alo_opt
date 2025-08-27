@@ -175,7 +175,7 @@ def get_all_data_for_optimization():
 
 def get_branches():
     """
-    Get a list of all unique branch names from branch_association_index
+    Get a list of all unique branch names from branch_relationships
     
     Returns:
         list: A list of unique branch names
@@ -183,7 +183,7 @@ def get_branches():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT branch_name FROM branch_association_index ORDER BY branch_name")
+        cursor.execute("SELECT DISTINCT branch_name FROM branch_relationships ORDER BY branch_name")
         branches = [row[0] for row in cursor.fetchall()]
         conn.close()
         return branches
@@ -193,7 +193,7 @@ def get_branches():
 
 def get_associations():
     """
-    Get associations and their mapped branches from branch_association_index
+    Get associations and their mapped branches from test_data
     
     Returns:
         list: List of dictionaries with association_name and branch_name
@@ -205,7 +205,8 @@ def get_associations():
             SELECT DISTINCT 
                 association_name, 
                 branch_name 
-            FROM branch_association_index 
+            FROM test_data 
+            WHERE association_name IS NOT NULL AND branch_name IS NOT NULL
             ORDER BY association_name
         """)
         associations = [{'association_name': row[0], 'branch_name': row[1]} for row in cursor.fetchall()]
