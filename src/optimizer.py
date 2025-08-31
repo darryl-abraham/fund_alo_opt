@@ -323,12 +323,30 @@ def optimize_fund_allocation(
             
         # Get list of banks with relationships (value = 1)
         related_banks = []
+        # Map column names to actual bank names in the database
+        bank_name_mapping = {
+            'alliance_assoc_bank': 'Alliance Assoc. Bank',
+            'banco_popular': 'Banco Popular',
+            'bank_united': 'Bank United',
+            'city_national': 'City National',
+            'enterprise_bank_trust': 'Enterprise Bank & Trust',
+            'first_citizens_bank': 'First Citizens Bank',
+            'harmony_bank': 'Harmony Bank',
+            'pacific_premier_bank': 'Pacific Premier Bank',
+            'pacific_western': 'Pacific Western',
+            'southstate': 'SouthState',
+            'sunwest_bank': 'SunWest Bank',
+            'capital_one': 'Capital One'
+        }
+        
         for bank_col in BranchRelationshipsColumns.__dict__.values():
             if isinstance(bank_col, str) and bank_col != BranchRelationshipsColumns.BRANCH_NAME:
                 try:
                     if branch_relationships[bank_col].iloc[0] == 1:
-                        bank_name = bank_col.replace('_', ' ').title()
+                        # Use the mapping to get the correct bank name
+                        bank_name = bank_name_mapping.get(bank_col, bank_col.replace('_', ' ').title())
                         related_banks.append(bank_name)
+                        logger.info(f"Added related bank: {bank_name} (from column: {bank_col})")
                 except KeyError:
                     continue
         
@@ -341,7 +359,7 @@ def optimize_fund_allocation(
         if filtered_rates.empty:
             raise ValueError(f"No rates found for related banks of branch: {branch_name}")
         
-        # 1. Get and normalize category weights to sum to 100%
+        # 1. Get category weights directly from database (should sum to 100%)
         category_weights = {
             'product': 0.0,
             'time': 0.0,
@@ -350,32 +368,39 @@ def optimize_fund_allocation(
             'liquidity': 0.0
         }
         
-        # First get raw weights
-        total_weight = 0
+        # Get category weights directly (these should already sum to 100%)
         for category in category_weights:
             if category in constraints:
-                category_data = constraints[category]
-                if 'weight' in category_data:
-                    weight = category_data['weight']  # This is already a percentage (0-100)
-                    category_weights[category] = weight
-                    total_weight += weight
+                category_constraints = constraints[category]
+                # Get the weight from the first constraint in the category
+                if category_constraints:
+                    first_constraint = next(iter(category_constraints.values()))
+                    category_weights[category] = first_constraint['weight']
         
-        # Then normalize to sum to 100%
-        if total_weight > 0:
-            for category in category_weights:
-                category_weights[category] = category_weights[category] / total_weight
+        # Verify total equals 100% (1.0)
+        total_weight = sum(category_weights.values())
+        if abs(total_weight - 1.0) > 0.01:
+            logger.warning(f"Category weights sum to {total_weight*100:.1f}%, not 100%. Normalizing...")
+            # Normalize to sum to 1.0 if they don't already
+            if total_weight > 0:
+                for category in category_weights:
+                    category_weights[category] = category_weights[category] / total_weight
         
-        # 2. Get bank weights (0-10)
+        logger.info(f"Category weights: {category_weights}")
+        logger.info(f"Total category weight: {sum(category_weights.values())*100:.1f}%")
+        
+        # 2. Get bank weights (0-1 scale, already normalized)
         bank_weights = {}
         if 'bank' in constraints:
             bank_constraints = constraints['bank']
             for bank_name, bank_data in bank_constraints.items():
                 if bank_data['enabled']:
-                    # Normalize 0-10 to 0-1
-                    bank_weights[bank_name] = bank_data['value'] / 10.0
+                    # Values are already 0-1 scale
+                    bank_weights[bank_name] = bank_data['value']
+                    logger.info(f"Bank weight for {bank_name}: {bank_weights[bank_name]}")
         
-        # 3. Get time weights (0-10)
-        filtered_rates['time_weight'] = 1.0  # Default weight
+        # 3. Get time weights (0-1 scale, already normalized)
+        filtered_rates['time_weight'] = 0.0  # Default weight - start with 0 for disabled constraints
         if 'time' in constraints:
             time_constraints = constraints['time']
             time_mapping = {
@@ -387,10 +412,17 @@ def optimize_fund_allocation(
             for time_name, time_data in time_constraints.items():
                 if time_data['enabled'] and time_name in time_mapping:
                     time_range = time_mapping[time_name]
-                    # Normalize 0-10 to 0-1
-                    weight = time_data['value'] / 10.0
+                    # Values are already 0-1 scale
+                    weight = time_data['value']
                     term_mask = (filtered_rates["CD Term Num"] >= time_range[0]) & (filtered_rates["CD Term Num"] <= time_range[1])
                     filtered_rates.loc[term_mask, 'time_weight'] = weight
+                    logger.info(f"Time weight for {time_name}: {weight}")
+                elif not time_data['enabled'] and time_name in time_mapping:
+                    # Explicitly set weight to 0 for disabled constraints
+                    time_range = time_mapping[time_name]
+                    term_mask = (filtered_rates["CD Term Num"] >= time_range[0]) & (filtered_rates["CD Term Num"] <= time_range[1])
+                    filtered_rates.loc[term_mask, 'time_weight'] = 0.0
+                    logger.info(f"Time weight for {time_name} (DISABLED): 0.0")
         
         # 4. Get interest and ECR weights (sum to 1.0)
         interest_weight = 1.0
@@ -410,9 +442,20 @@ def optimize_fund_allocation(
         liquidity_reserve = 0.3  # Default 30%
         if 'liquidity' in constraints:
             liquidity_constraints = constraints['liquidity']
-            if liquidity_constraints and liquidity_constraints[0]['enabled']:
-                # Convert percentage to decimal
-                liquidity_reserve = liquidity_constraints[0]['value'] / 100.0
+            if liquidity_constraints:
+                # Get the first liquidity constraint (should be "Liquidity Reserve")
+                liquidity_name = next(iter(liquidity_constraints.keys()))
+                liquidity_data = liquidity_constraints[liquidity_name]
+                if liquidity_data['enabled']:
+                    # Value is already stored as decimal (0.3 for 30%)
+                    liquidity_reserve = liquidity_data['value']
+                    logger.info(f"Using liquidity reserve: {liquidity_reserve*100:.1f}%")
+                else:
+                    logger.info("Liquidity constraint is disabled, using default 30%")
+            else:
+                logger.info("No liquidity constraints found, using default 30%")
+        else:
+            logger.info("Liquidity category not found in constraints, using default 30%")
         
         # Get total funds - either from database or use custom allocation
         if custom_allocation is not None:
@@ -476,33 +519,58 @@ def optimize_fund_allocation(
                     ecr_rate = ecr_rates.get((bank, product_type), 0)
                     composite_score += ecr_rate * ecr_weight
                 
-                # Get product weight for CDs
-                product_weight = 0.0
+                # Apply individual constraint weights
+                # Bank weight (0-1, normalized from 0-10)
+                bank_weight = bank_weights.get(bank, 1.0)
+                
+                # Time weight (0-1, normalized from 0-10)
+                time_weight = rate_row['time_weight'].values[0]
+                
+                # Product weight for CDs (0-1 scale, already normalized)
+                product_weight = 1.0  # Default weight
                 if 'product' in constraints:
                     product_constraints = constraints['product']
                     if 'CD' in product_constraints and product_constraints['CD']['enabled']:
-                        # Get the CD weight (0-100%) and multiply by category weight
-                        product_weight = product_constraints['CD']['value'] * category_weights['product']
+                        product_weight = product_constraints['CD']['value']
                 
                 # Apply category weights and individual constraint weights
-                # If a category weight is 0, treat it as 1 to avoid zeroing out the score
-                weighting_weight = category_weights['weighting'] if category_weights['weighting'] > 0 else 1.0
-                bank_weight = bank_weight * (category_weights['bank'] if category_weights['bank'] > 0 else 1.0)
-                time_weight = time_weight * (category_weights['time'] if category_weights['time'] > 0 else 1.0)
+                # This implements the 100% total system:
+                # - Category weights determine overall influence (e.g., Product = 36%)
+                # - Individual values determine contribution within category (e.g., CD = 100% of Product's 36% = 36% total)
                 
-                composite_score *= weighting_weight  # Apply weighting category weight
-                composite_score *= bank_weight  # Apply bank weights
-                composite_score *= time_weight  # Apply time weights
-                composite_score *= product_weight if product_weight > 0 else 1.0  # Apply product weight
+                # Apply weighting category weight (interest vs ECR balance)
+                if category_weights['weighting'] > 0:
+                    composite_score *= category_weights['weighting']
+                
+                # Apply bank category weight and individual bank weight
+                if category_weights['bank'] > 0:
+                    composite_score *= (bank_weight * category_weights['bank'])
+                else:
+                    # If bank category has no weight, still apply individual bank preferences
+                    composite_score *= bank_weight
+                
+                # Apply time category weight and individual time weight
+                if category_weights['time'] > 0:
+                    composite_score *= (time_weight * category_weights['time'])
+                else:
+                    # If time category has no weight, still apply individual time preferences
+                    composite_score *= time_weight
+                
+                # Apply product category weight and individual product weight
+                if category_weights['product'] > 0:
+                    composite_score *= (product_weight * category_weights['product'])
+                else:
+                    # If product category has no weight, still apply individual product preferences
+                    composite_score *= product_weight
                 
                 # Log the components of the score for debugging
                 logger.info(f"Score components for {bank} {term}:")
-                logger.info(f"  CD Rate: {cd_rate}, Interest Weight: {interest_weight}")
-                logger.info(f"  Product Weight: {product_weight}, Product Category Weight: {category_weights['product']}")
-                logger.info(f"  Bank Weight: {bank_weight}, Bank Category Weight: {category_weights['bank']}")
-                logger.info(f"  Time Weight: {time_weight}, Time Category Weight: {category_weights['time']}")
-                logger.info(f"  Weighting Category Weight: {category_weights['weighting']}")
-                logger.info(f"  Final Composite Score: {composite_score}")
+                logger.info(f"  CD Rate: {cd_rate:.4f}, Interest Weight: {interest_weight:.3f}")
+                logger.info(f"  Product: {product_weight:.3f} × {category_weights['product']:.3f} = {product_weight * category_weights['product']:.3f} ({product_weight * category_weights['product']*100:.1f}%)")
+                logger.info(f"  Bank: {bank_weight:.3f} × {category_weights['bank']:.3f} = {bank_weight * category_weights['bank']:.3f} ({bank_weight * category_weights['bank']*100:.1f}%)")
+                logger.info(f"  Time: {time_weight:.3f} × {category_weights['time']:.3f} = {time_weight * category_weights['time']:.3f} ({time_weight * category_weights['time']*100:.1f}%)")
+                logger.info(f"  Weighting Category: {category_weights['weighting']:.3f} ({category_weights['weighting']*100:.1f}%)")
+                logger.info(f"  Final Composite Score: {composite_score:.6f}")
                 
                 objective.SetCoefficient(var, composite_score)
         

@@ -90,3 +90,11 @@ pyrightconfig.json
 # Local dotenv files
 .env
 .env.*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Flask session files
+src/flask_session/
