@@ -521,6 +521,17 @@ def get_constraints_for_optimizer():
                 } for _, row in bank_df.iterrows()
             }
             
+        # Process liquidity constraints
+        liquidity_df = constraints_df[constraints_df['category'] == 'liquidity']
+        if not liquidity_df.empty:
+            result['liquidity'] = {
+                row['name']: {
+                    'value': row['value'],
+                    'weight': row['weight'],
+                    'enabled': bool(row['is_enabled'])
+                } for _, row in liquidity_df.iterrows()
+            }
+            
         return result
     except Exception as e:
         logger.error(f"Error formatting constraints for optimizer: {str(e)}")

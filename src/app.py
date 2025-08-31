@@ -518,25 +518,123 @@ def admin_update_constraint():
         flash(f'Error updating constraint: {str(e)}', 'danger')
         return redirect(url_for('admin_constraints'))
 
+# Add new route for updating individual constraint toggles and values
+@app.route('/admin/constraint/update', methods=['POST'])
+@admin_required
+def admin_update_constraint_individual():
+    """Update individual constraint toggle and value."""
+    conn = None
+    try:
+        constraint_id = request.form.get('id')
+        is_enabled = request.form.get('is_enabled') == 'true'
+        value_input = request.form.get('value', '0')
+        
+        # Convert percentage (0-100) to decimal (0-1) for storage
+        try:
+            value = float(value_input) / 100.0
+        except ValueError:
+            value = 0.0
+            
+        logger.info(f"Updating constraint {constraint_id}: enabled={is_enabled}, value={value}")
+        
+        # Get database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Update the constraint
+        cursor.execute(
+            """UPDATE constraints 
+               SET is_enabled = ?, value = ?
+               WHERE id = ?""",
+            (is_enabled, value, constraint_id)
+        )
+        
+        conn.commit()
+        
+        return jsonify({'success': True, 'message': 'Constraint updated successfully'})
+            
+    except Exception as e:
+        logger.error(f"Error updating constraint: {str(e)}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Add new route for handling category toggles
+@app.route('/admin/category/toggle', methods=['POST'])
+@admin_required
+def admin_toggle_category():
+    """Toggle a category on/off and handle cascading effects."""
+    conn = None
+    try:
+        category = request.form.get('category')
+        is_enabled = request.form.get('enabled') == 'true'
+        
+        if not category:
+            return jsonify({'success': False, 'message': 'Category is required'}), 400
+            
+        logger.info(f"Toggling category {category}: enabled={is_enabled}")
+        
+        # Get database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if is_enabled:
+            # Just re-enable UI interaction, don't change existing is_enabled values
+            # Update category weight to a default value if it was 0
+            cursor.execute(
+                """UPDATE constraints 
+                   SET weight = CASE 
+                       WHEN weight = 0 THEN 0.33 
+                       ELSE weight 
+                   END
+                   WHERE category = ?""",
+                (category,)
+            )
+        else:
+            # Cascade disable: set is_enabled=0 for all constraints in this category
+            cursor.execute(
+                """UPDATE constraints 
+                   SET is_enabled = 0, weight = 0
+                   WHERE category = ?""",
+                (category,)
+            )
+        
+        conn.commit()
+        
+        return jsonify({'success': True, 'message': f'Category {category} {"enabled" if is_enabled else "disabled"}'})
+        
+    except Exception as e:
+        logger.error(f"Error toggling category: {str(e)}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 # Add new route for updating category weights
 @app.route('/admin/category/weight', methods=['POST'])
 @admin_required
 def admin_update_category_weight():
     """Update weights for all constraints in a category."""
+    conn = None
     try:
         category = request.form.get('category')
         weight_input = request.form.get('weight', '1.0')
         
         # Validate inputs
         if not category:
-            return 'Invalid category', 400
+            return jsonify({'success': False, 'message': 'Invalid category'}), 400
             
         try:
             weight = float(weight_input)
             if weight < 0:
-                return 'Weight must be non-negative', 400
+                return jsonify({'success': False, 'message': 'Weight must be non-negative'}), 400
         except ValueError:
-            return 'Invalid weight value', 400
+            return jsonify({'success': False, 'message': 'Invalid weight value'}), 400
             
         logger.info(f"Updating category weight for {category}: {weight}")
         
@@ -544,7 +642,7 @@ def admin_update_category_weight():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Update all constraints in the category
+        # Update all constraints in the category with a single bulk call
         cursor.execute(
             """UPDATE constraints 
                SET weight = ?
@@ -553,12 +651,16 @@ def admin_update_category_weight():
         )
         
         conn.commit()
-        conn.close()
         
-        return 'Category weight updated successfully', 200
+        return jsonify({'success': True, 'message': f'Category weight updated to {weight:.2f}'})
     except Exception as e:
         logger.error(f"Error updating category weight: {str(e)}")
-        return f'Error updating category weight: {str(e)}', 500
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/admin/constraints/reset/<category>', methods=['POST'])
 @admin_required

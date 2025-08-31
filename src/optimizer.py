@@ -442,9 +442,20 @@ def optimize_fund_allocation(
         liquidity_reserve = 0.3  # Default 30%
         if 'liquidity' in constraints:
             liquidity_constraints = constraints['liquidity']
-            if liquidity_constraints and liquidity_constraints[0]['enabled']:
-                # Convert percentage to decimal
-                liquidity_reserve = liquidity_constraints[0]['value'] / 100.0
+            if liquidity_constraints:
+                # Get the first liquidity constraint (should be "Liquidity Reserve")
+                liquidity_name = next(iter(liquidity_constraints.keys()))
+                liquidity_data = liquidity_constraints[liquidity_name]
+                if liquidity_data['enabled']:
+                    # Value is already stored as decimal (0.3 for 30%)
+                    liquidity_reserve = liquidity_data['value']
+                    logger.info(f"Using liquidity reserve: {liquidity_reserve*100:.1f}%")
+                else:
+                    logger.info("Liquidity constraint is disabled, using default 30%")
+            else:
+                logger.info("No liquidity constraints found, using default 30%")
+        else:
+            logger.info("Liquidity category not found in constraints, using default 30%")
         
         # Get total funds - either from database or use custom allocation
         if custom_allocation is not None:
