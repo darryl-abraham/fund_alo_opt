@@ -150,22 +150,42 @@
                                     </table>
                                 </div>
 
-                                <!-- Download Options -->
-                                <div class="text-center mt-4">
-                                    <div class="row justify-content-center">
-                                        <div class="col-md-6">
-                                            <div class="card">
-                                                <div class="card-body">
-                                                    <h5 class="card-title"><i class="bi bi-download"></i> Download Options</h5>
-                                                    <p class="card-text">Download the complete analysis report including all underperforming accounts and detailed metrics.</p>
-                                                    <a href="{{ url_for('download_analysis_report') }}" class="btn btn-success btn-lg">
-                                                        <i class="bi bi-file-earmark-excel"></i> Download Full Report
-                                                    </a>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                                <!-- Download Options -->
+                <div class="text-center mt-4">
+                    <div class="row justify-content-center">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title"><i class="bi bi-download"></i> Download Options</h5>
+                                    <p class="card-text">Download the complete analysis report including all underperforming accounts and detailed metrics.</p>
+                                    <a href="{{ url_for('download_analysis_report') }}" class="btn btn-success btn-lg">
+                                        <i class="bi bi-file-earmark-excel"></i> Download Full Report
+                                    </a>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Maturing Accounts Section -->
+                <div class="mt-4">
+                    <div class="card">
+                        <div class="card-header bg-info text-white">
+                            <h5 class="mb-0"><i class="bi bi-calendar-event"></i> Maturing Accounts</h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">
+                                Use the dedicated <strong>Maturing Accounts</strong> tool to identify accounts approaching maturity 
+                                and optimize their allocation using current rates and constraints.
+                            </p>
+                            <div class="text-center">
+                                <a href="{{ url_for('admin_maturity_optimization') }}" class="btn btn-info btn-lg">
+                                    <i class="bi bi-calendar-event"></i> Go to Maturing Accounts
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                             </div>
                         </div>
                     </div>

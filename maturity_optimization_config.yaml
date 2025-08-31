@@ -1,0 +1,180 @@
+# Account Maturity Optimization Configuration
+# This file defines business rules and parameters for the optimization system
+
+# Time Window Configuration
+time_window:
+  months_ahead: 3  # Number of months ahead to scan for maturing accounts
+  min_days_to_maturity: 30  # Minimum days to maturity (exclude very short-term accounts)
+
+# Balance Thresholds
+balance_filters:
+  min_balance: 100000  # Minimum balance in dollars ($100K)
+  max_balance: 10000000  # Maximum balance in dollars ($10M)
+  
+  # Balance tiers for different optimization strategies
+  balance_tiers:
+    - name: "Small"
+      min: 100000
+      max: 500000
+      priority: "Medium"
+    - name: "Medium"
+      min: 500000
+      max: 2000000
+      priority: "High"
+    - name: "Large"
+      min: 2000000
+      max: 10000000
+      priority: "High"
+
+# Investment Type Filters
+investment_types:
+  allowed_types:
+    - "Certificate of Deposit"
+    - "Money Market"
+    # - "Checking"  # Uncomment to include
+    # - "Savings"   # Uncomment to include
+  
+  excluded_types:
+    - "Checking"  # Typically excluded from optimization
+    - "Savings"   # Typically excluded from optimization
+
+# Bank Relationship Configuration
+bank_filters:
+  # Banks to exclude from optimization
+  excluded_banks:
+    - "Non-Partner Bank 1"
+    - "Non-Partner Bank 2"
+  
+  # Preferred banks (higher priority in optimization)
+  preferred_banks:
+    - "Bank United"
+    - "City National"
+    - "First Citizens Bank"
+    - "Pacific Premier Bank"
+  
+  # Bank relationship scoring
+  relationship_scoring:
+    primary_partner: 2.0      # Highest priority
+    secondary_partner: 1.0    # Standard priority
+    non_partner: 0.5          # Lower priority
+
+# Optimization Constraints
+optimization_constraints:
+  # Liquidity requirements
+  liquidity:
+    reserve_percentage: 0.30  # 30% minimum liquidity
+  
+  # Diversification limits
+  diversification:
+    max_bank_concentration: 0.40  # Max 40% in any single bank
+    max_term_concentration: 0.50  # Max 50% in any single term category
+  
+  # Risk management
+  risk_management:
+    max_individual_allocation: 0.25  # Max 25% in any single investment
+    min_credit_rating: "A-"          # Minimum credit rating requirement
+
+# Business Rules
+business_rules:
+  # Account segmentation
+  account_segments:
+    operating_funds:
+      summary_accounts: ["1000"]
+      priority: "High"
+      liquidity_requirement: 0.40  # Higher liquidity for operating funds
+    
+    reserve_funds:
+      summary_accounts: ["1300"]
+      priority: "Medium"
+      liquidity_requirement: 0.20  # Lower liquidity for reserve funds
+  
+  # Maturity laddering
+  maturity_laddering:
+    enabled: true
+    target_distribution:
+      "1-3 months": 0.30
+      "4-6 months": 0.40
+      "7-12 months": 0.30
+  
+  # Seasonal adjustments
+  seasonal_adjustments:
+    enabled: true
+    periods:
+      q1:  # January-March
+        liquidity_multiplier: 1.2  # Higher liquidity needs
+      q2:  # April-June
+        liquidity_multiplier: 1.0  # Standard liquidity
+      q3:  # July-September
+        liquidity_multiplier: 0.9  # Lower liquidity needs
+      q4:  # October-December
+        liquidity_multiplier: 1.1  # Slightly higher liquidity
+
+# Output Configuration
+output_config:
+  # File formats
+  formats:
+    - csv
+    - database
+    - markdown
+  
+  # Output directory
+  output_directory: "data/maturity_optimization"
+  
+  # Database table naming
+  table_naming:
+    prefix: "accounts_optimizations"
+    date_format: "%Y%m%d"
+    include_timestamp: true
+  
+  # Report customization
+  reports:
+    include_top_accounts: 10
+    include_maturity_distribution: true
+    include_failed_optimizations: true
+    include_constraint_analysis: true
+
+# Performance Configuration
+performance:
+  # Batch processing
+  batch_size: 50  # Process accounts in batches of 50
+  
+  # Parallel processing
+  max_workers: 4  # Maximum parallel workers for optimization
+  
+  # Timeout settings
+  optimization_timeout: 300  # 5 minutes per optimization
+  total_timeout: 3600       # 1 hour total timeout
+  
+  # Memory management
+  max_memory_usage: "2GB"   # Maximum memory usage
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file_logging: true
+  console_logging: true
+  log_file: "maturity_optimization.log"
+  
+  # Log rotation
+  max_file_size: "10MB"
+  backup_count: 5
+
+# Notification Configuration
+notifications:
+  enabled: false
+  email:
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    sender_email: "optimization@company.com"
+    recipients: []
+  
+  # Slack/Teams integration
+  slack:
+    webhook_url: ""
+    channel: "#optimization-alerts"
+  
+  # Alert thresholds
+  alerts:
+    success_rate_threshold: 0.80  # Alert if success rate < 80%
+    yield_lift_threshold: 50      # Alert if average yield lift < 50 bps
+    failure_count_threshold: 10   # Alert if more than 10 failures

@@ -1015,6 +1015,110 @@ def download_analysis_report():
         flash(f"Error generating report: {str(e)}", 'error')
         return redirect(url_for('admin_analysis'))
 
+@app.route('/admin/maturity_optimization', methods=['GET', 'POST'])
+@admin_required
+def admin_maturity_optimization():
+    """Admin maturity optimization dashboard"""
+    try:
+        if request.method == 'POST':
+            # Get parameters from form
+            months_ahead = int(request.form.get('months_ahead', 3))
+            min_balance = float(request.form.get('min_balance', 100000))
+            max_balance = float(request.form.get('max_balance', 10000000))
+            investment_types = request.form.getlist('investment_types')
+            excluded_banks = request.form.getlist('excluded_banks')
+            
+            # Import maturity optimizer
+            from maturity_optimizer import MaturityOptimizer
+            
+            # Initialize and run optimization
+            maturity_opt = MaturityOptimizer()
+            results = maturity_opt.run_maturity_optimization(
+                months_ahead=months_ahead,
+                min_balance=min_balance,
+                max_balance=max_balance,
+                allowed_investment_types=investment_types if investment_types else None,
+                excluded_banks=excluded_banks if excluded_banks else None
+            )
+            
+            if results['success']:
+                # Store results in session for display
+                session['maturity_results'] = results
+                flash('Maturity optimization completed successfully!', 'success')
+            else:
+                flash(f'Maturity optimization failed: {results["message"]}', 'error')
+            
+            return redirect(url_for('admin_maturity_optimization'))
+        
+        # Check for download requests
+        download_type = request.args.get('download')
+        if download_type and 'maturity_results' in session:
+            maturity_results = session['maturity_results']
+            
+            if download_type == 'csv':
+                # Generate CSV download
+                import io
+                output = io.StringIO()
+                
+                # Create CSV content
+                if maturity_results['results']:
+                    df = pd.DataFrame(maturity_results['results'])
+                    df.to_csv(output, index=False)
+                    output.seek(0)
+                    
+                    return send_file(
+                        io.BytesIO(output.getvalue().encode('utf-8')),
+                        mimetype='text/csv',
+                        as_attachment=True,
+                        download_name=f'maturity_optimization_results_{datetime.now().strftime("%Y%m%d")}.csv'
+                    )
+            
+            elif download_type == 'summary':
+                # Generate markdown summary download
+                from maturity_optimizer import MaturityOptimizer
+                maturity_opt = MaturityOptimizer()
+                markdown_summary = maturity_opt.generate_markdown_summary(maturity_results['summary'])
+                
+                return send_file(
+                    io.BytesIO(markdown_summary.encode('utf-8')),
+                    mimetype='text/markdown',
+                    as_attachment=True,
+                    download_name=f'maturity_optimization_summary_{datetime.now().strftime("%Y%m%d")}.md'
+                )
+        
+        # GET request - display form and results
+        maturity_results = session.get('maturity_results')
+        
+        # Get available investment types and banks for the form
+        try:
+            conn = db_utils.get_db_connection()
+            
+            # Get unique investment types
+            investment_types_query = "SELECT DISTINCT investment_type FROM test_data WHERE investment_type IS NOT NULL ORDER BY investment_type"
+            investment_types = pd.read_sql_query(investment_types_query, conn)
+            
+            # Get unique banks
+            banks_query = "SELECT DISTINCT holder as bank_name FROM test_data WHERE holder IS NOT NULL ORDER BY holder"
+            banks = pd.read_sql_query(banks_query, conn)
+            
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Could not fetch form data: {str(e)}")
+            investment_types = pd.DataFrame()
+            banks = pd.DataFrame()
+        
+        return render_template(
+            'admin/maturity_optimization.html',
+            maturity_results=maturity_results,
+            investment_types=investment_types['investment_type'].tolist() if not investment_types.empty else [],
+            banks=banks['bank_name'].tolist() if not banks.empty else []
+        )
+        
+    except Exception as e:
+        logger.exception("Error in admin maturity optimization")
+        flash(f"Error: {str(e)}", 'error')
+        return redirect(url_for('admin_dashboard'))
+
 def init_db():
     """
     Initialize the database with required tables if they don't exist.
