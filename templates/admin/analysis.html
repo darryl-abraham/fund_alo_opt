@@ -38,12 +38,6 @@
         height: 300px;
         margin-bottom: 2rem;
     }
-    .file-upload-section {
-        background: #f8f9fa;
-        border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 20px;
-    }
     .comparison-table th {
         background-color: #f1f8ff;
     }
@@ -54,19 +48,6 @@
     .loss-highlight {
         color: #dc3545;
         font-weight: bold;
-    }
-    .upload-zone {
-        border: 2px dashed #ccc;
-        padding: 20px;
-        text-align: center;
-        background: white;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    .upload-zone:hover {
-        border-color: #0d6efd;
-        background: #f8f9fa;
     }
 </style>
 {% endblock %}
@@ -82,40 +63,7 @@
                 <h4 class="mb-0"><i class="bi bi-graph-up"></i> Analysis Dashboard</h4>
             </div>
             <div class="card-body">
-                <!-- Excel Upload Section -->
-                <div class="row mb-4">
-                    <div class="col-md-12">
-                        <div class="card">
-                            <div class="card-header bg-info text-white">
-                                <h5 class="mb-0"><i class="bi bi-file-earmark-excel"></i> Excel-Driven Analysis</h5>
-                            </div>
-                            <div class="card-body">
-                                <form id="excelAnalysisForm" action="{{ url_for('analyze_excel') }}" method="post" enctype="multipart/form-data">
-                                    <div class="row">
-                                        <div class="col-md-12 mb-3">
-                                            <div class="card h-100">
-                                                <div class="card-body">
-                                                    <h6 class="card-title"><i class="bi bi-file-spreadsheet"></i> Current Portfolio Data</h6>
-                                                    <div class="upload-zone" id="portfolioUpload">
-                                                        <input type="file" name="portfolio_file" class="d-none" accept=".xlsx,.xls" required>
-                                                        <i class="bi bi-cloud-upload display-4"></i>
-                                                        <p class="mb-0">Drop your portfolio Excel file here<br>or click to browse</p>
-                                                        <small class="text-muted">Format: CMI.xlsx or similar</small>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="text-center mt-3">
-                                        <button type="submit" class="btn btn-primary btn-lg">
-                                            <i class="bi bi-lightning-charge"></i> Run Analysis
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+
 
                 <!-- Analysis Results Section -->
                 {% if analysis_results %}
@@ -338,102 +286,9 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // File Upload Handling
-    function setupFileUpload(uploadZoneId) {
-        const uploadZone = document.getElementById(uploadZoneId);
-        const fileInput = uploadZone.querySelector('input[type="file"]');
-        
-        uploadZone.addEventListener('click', () => fileInput.click());
-        
-        uploadZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadZone.style.borderColor = '#0d6efd';
-            uploadZone.style.background = '#f8f9fa';
-        });
-        
-        uploadZone.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            uploadZone.style.borderColor = '#ccc';
-            uploadZone.style.background = 'white';
-        });
-        
-        uploadZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadZone.style.borderColor = '#ccc';
-            uploadZone.style.background = 'white';
-            
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                fileInput.files = files;
-                updateFileName(uploadZone, files[0].name);
-            }
-        });
-        
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                updateFileName(uploadZone, e.target.files[0].name);
-            }
-        });
-    }
+
     
-    function updateFileName(uploadZone, fileName) {
-        const paragraph = uploadZone.querySelector('p');
-        paragraph.innerHTML = `Selected file:<br><strong>${fileName}</strong>`;
-    }
-    
-    setupFileUpload('portfolioUpload');
-    
-    // Form Submission Handling
-    const analysisForm = document.getElementById('excelAnalysisForm');
-    if (analysisForm) {
-        analysisForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(this);
-            const submitButton = this.querySelector('button[type="submit"]');
-            const originalButtonText = submitButton.innerHTML;
-            
-            // Show loading state
-            submitButton.disabled = true;
-            submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Analyzing...';
-            
-            fetch(this.action, {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Instead of reloading, redirect to the analysis page
-                    window.location.href = "{{ url_for('admin_analysis') }}";
-                } else {
-                    // Show error message
-                    const alertDiv = document.createElement('div');
-                    alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3';
-                    alertDiv.innerHTML = `
-                        <strong>Error!</strong> ${data.message}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    `;
-                    this.appendChild(alertDiv);
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3';
-                alertDiv.innerHTML = `
-                    <strong>Error!</strong> An unexpected error occurred. Please try again.
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                `;
-                this.appendChild(alertDiv);
-            })
-            .finally(() => {
-                // Restore button state
-                submitButton.disabled = false;
-                submitButton.innerHTML = originalButtonText;
-            });
-        });
-    }
+
 
     // Initialize Charts if analysis results exist
     {% if analysis_results and analysis_results.rate_chart %}
