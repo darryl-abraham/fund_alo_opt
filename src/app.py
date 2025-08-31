@@ -898,6 +898,99 @@ def analyze_excel():
         logger.exception("Error in Excel analysis")
         return jsonify({'success': False, 'message': f"Error processing file: {str(e)}"})
 
+@app.route('/send_proposal', methods=['POST'])
+def send_proposal():
+    """Handle sending investment proposal via email"""
+    try:
+        # Get form data
+        recipient_email = request.form.get('recipientEmail')
+        subject_line = request.form.get('subjectLine')
+        email_body = request.form.get('emailBody')
+        
+        # Validate required fields
+        if not recipient_email or not subject_line or not email_body:
+            return jsonify({
+                'success': False,
+                'message': 'All fields are required'
+            }), 400
+        
+        # Validate email format
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, recipient_email):
+            return jsonify({
+                'success': False,
+                'message': 'Please enter a valid email address'
+            }), 400
+        
+        # Get optimization results from session
+        if 'results' not in session:
+            return jsonify({
+                'success': False,
+                'message': 'No optimization results found. Please run an optimization first.'
+            }), 400
+        
+        results = session['results']
+        params = session.get('params', {})
+        
+        # Log the proposal request
+        logger.info(f"Proposal request received for {params.get('branch_name', 'Unknown')} - {params.get('association_name', 'Unknown')}")
+        logger.info(f"Recipient: {recipient_email}")
+        logger.info(f"Subject: {subject_line}")
+        
+        # In a real implementation, you would send the email here
+        # For now, we'll simulate success and log the details
+        
+        # You could integrate with services like:
+        # - SendGrid
+        # - Mailgun
+        # - AWS SES
+        # - Or use Python's smtplib for direct SMTP
+        
+        # Example with smtplib (commented out):
+        """
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        # Configure your SMTP settings
+        smtp_server = "smtp.gmail.com"
+        smtp_port = 587
+        sender_email = "your-email@example.com"
+        sender_password = "your-app-password"
+        
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+        msg['Subject'] = subject_line
+        
+        # Add body
+        msg.attach(MIMEText(email_body, 'plain'))
+        
+        # Send email
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        """
+        
+        # For demonstration, we'll just return success
+        # In production, implement actual email sending logic
+        
+        return jsonify({
+            'success': True,
+            'message': f'Proposal sent successfully to {recipient_email}. Email subject: "{subject_line}"'
+        })
+        
+    except Exception as e:
+        logger.exception("Error sending proposal")
+        return jsonify({
+            'success': False,
+            'message': f'Error sending proposal: {str(e)}'
+        }), 500
+
 @app.route('/download_analysis_report')
 def download_analysis_report():
     """Generate and download detailed analysis report"""

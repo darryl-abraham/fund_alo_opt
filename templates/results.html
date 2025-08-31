@@ -259,9 +259,14 @@
                     <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
                         <i class="bi bi-arrow-left"></i> Back to Form
                     </a>
-                    <a href="{{ url_for('clear_session') }}" class="btn btn-primary">
-                        <i class="bi bi-plus-circle"></i> Start New Optimization
-                    </a>
+                    <div>
+                        <button type="button" class="btn btn-success me-2" id="sendProposalBtn">
+                            <i class="bi bi-envelope"></i> Send Proposal
+                        </button>
+                        <a href="{{ url_for('clear_session') }}" class="btn btn-primary">
+                            <i class="bi bi-plus-circle"></i> Start New Optimization
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -281,6 +286,70 @@
                         <canvas id="termsBarChart"></canvas>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Proposal Modal -->
+<div class="modal fade" id="proposalModal" tabindex="-1" aria-labelledby="proposalModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="proposalModalLabel">
+                    <i class="bi bi-envelope"></i> Send Investment Proposal
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="proposalForm">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="recipientEmail" class="form-label">Recipient Email</label>
+                            <input type="email" class="form-control" id="recipientEmail" name="recipientEmail" 
+                                   placeholder="community.manager@example.com" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="subjectLine" class="form-label">Subject Line</label>
+                            <input type="text" class="form-control" id="subjectLine" name="subjectLine" 
+                                   value="Investment Proposal - {{ params.branch_name }} - {{ params.association_name }}" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="emailBody" class="form-label">Email Body</label>
+                        <textarea class="form-control" id="emailBody" name="emailBody" rows="15" required></textarea>
+                        <div class="form-text">Review and edit the proposal content before sending.</div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <h6><i class="bi bi-info-circle"></i> Proposal Summary</h6>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <strong>Total Allocated:</strong><br>
+                                <span class="text-primary">${{ '{:,.2f}'.format(results.summary.total_allocated) }}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>Expected Return:</strong><br>
+                                <span class="text-success">${{ '{:,.2f}'.format(results.summary.total_return) }}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>Weighted Avg. Rate:</strong><br>
+                                <span class="text-info">{{ '{:.2f}'.format(results.summary.weighted_avg_rate) }}%</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>Partner Banks:</strong><br>
+                                <span class="text-secondary">{{ results.results|length }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="sendProposal()">
+                    <i class="bi bi-send"></i> Send Proposal
+                </button>
             </div>
         </div>
     </div>
@@ -322,11 +391,24 @@ const templateData = {
     totalAllocated: Number('{{ results.summary.total_allocated|safe }}')
 };
 
+console.log('templateData initialized:', templateData);
+
 // Global variables to store chart instances
 let pieChart = null;
 let barChart = null;
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Add event listener for the Send Proposal button
+    const sendProposalBtn = document.getElementById('sendProposalBtn');
+    if (sendProposalBtn) {
+        sendProposalBtn.addEventListener('click', function() {
+            console.log('Send Proposal button clicked');
+            openProposalModal();
+        });
+    } else {
+        console.error('Send Proposal button not found');
+    }
+    
     // Prepare data for allocation pie chart
     const bankData = {};
     templateData.allocationData.forEach(item => {
@@ -633,5 +715,184 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+</script>
+
+<script>
+// Proposal functionality
+function openProposalModal() {
+    console.log('openProposalModal called');
+    console.log('templateData:', templateData);
+    
+    try {
+        // Populate the email body with the proposal template
+        const emailBody = generateProposalTemplate();
+        console.log('Generated email body:', emailBody);
+        
+        document.getElementById('emailBody').value = emailBody;
+        
+        // Show the modal
+        const modal = new bootstrap.Modal(document.getElementById('proposalModal'));
+        modal.show();
+    } catch (error) {
+        console.error('Error in openProposalModal:', error);
+        alert('Error opening proposal modal: ' + error.message);
+    }
+}
+
+function generateProposalTemplate() {
+    // Get data from the existing templateData variable that's already defined
+    const results = templateData.allocationData;
+    const summary = {
+        total_allocated: templateData.totalAllocated,
+        total_return: parseFloat(document.getElementById('summaryExpectedReturn').textContent.replace('$', '').replace(',', '')),
+        weighted_avg_rate: parseFloat(document.getElementById('summaryAvgRate').textContent.replace('%', ''))
+    };
+    
+    // Get current portfolio data for comparison
+    const currentPortfolioTable = document.querySelector('.table-info tbody');
+    let currentTotalBalance = 0;
+    let currentMonthlyInterest = 0;
+    
+    if (currentPortfolioTable) {
+        const currentRows = currentPortfolioTable.querySelectorAll('tr');
+        currentRows.forEach(row => {
+            const amountCell = row.querySelector('td:nth-child(3)');
+            const interestCell = row.querySelector('td:nth-child(5)');
+            if (amountCell && interestCell) {
+                const amount = parseFloat(amountCell.textContent.replace('$', '').replace(',', ''));
+                const interest = parseFloat(interestCell.textContent.replace('$', '').replace(',', ''));
+                if (!isNaN(amount)) currentTotalBalance += amount;
+                if (!isNaN(interest)) currentMonthlyInterest += interest;
+            }
+        });
+    }
+    
+    // Calculate current annual return (monthly * 12)
+    const currentAnnualReturn = currentMonthlyInterest * 12;
+    
+    // Calculate deltas
+    const returnDelta = summary.total_return - currentAnnualReturn;
+    const returnDeltaPercent = currentAnnualReturn > 0 ? ((returnDelta / currentAnnualReturn) * 100) : 0;
+    
+    // Get params from the page content - using the table data that's already displayed
+    const branchName = document.querySelector('table tbody tr:first-child td:last-child').textContent.trim();
+    const associationName = document.querySelector('table tbody tr:last-child td:last-child').textContent.trim();
+    
+    let template = `Dear Community Manager,
+
+I hope this email finds you well. I am writing to present an investment proposal for the ${associationName} association, optimized for the ${branchName} branch.
+
+PROPOSAL SUMMARY:
+• Total Investment Amount: $${summary.total_allocated.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+• Expected Annual Return: $${summary.total_return.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+• Weighted Average Interest Rate: ${summary.weighted_avg_rate.toFixed(2)}%
+• Number of Partner Banks: ${results.length}
+
+CURRENT vs. OPTIMIZED COMPARISON:
+• Current Portfolio Balance: $${currentTotalBalance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+• Current Annual Return: $${currentAnnualReturn.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+• Optimized Annual Return: $${summary.total_return.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+• IMPROVEMENT: +$${returnDelta.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (${returnDeltaPercent > 0 ? '+' : ''}${returnDeltaPercent.toFixed(1)}%)
+
+DETAILED ALLOCATION BREAKDOWN:
+
+`;
+    
+    // Add allocation details (excluding ECR rate and ECR Monthly)
+    results.forEach((item, index) => {
+        template += `${index + 1}. ${item['Bank Name']}
+   • CD Term: ${item['CD Term']}
+   • Allocated Amount: $${item['Allocated Amount'].toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+   • CD Rate: ${item['CD Rate'].toFixed(2)}%
+   • Expected Return: $${item['Expected Return'].toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+
+`;
+    });
+    
+    template += `KEY HIGHLIGHTS:
+• This allocation strategy maximizes interest returns while maintaining appropriate diversification across partner banks
+• The weighted average rate of ${summary.weighted_avg_rate.toFixed(2)}% provides competitive returns in the current market environment
+• Funds are strategically distributed across different CD terms to balance liquidity needs with return optimization
+• The optimization delivers a ${returnDeltaPercent > 0 ? 'significant improvement' : 'improvement'} of $${returnDelta.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} in annual returns compared to your current portfolio
+
+NEXT STEPS:
+Please review this proposal and let me know if you have any questions or if you'd like to discuss any modifications to the allocation strategy.
+
+I'm available for a call or meeting to discuss this proposal in detail.
+
+Best regards,
+[Your Name]
+[Your Title]
+[Contact Information]`;
+    
+    return template;
+}
+
+function sendProposal() {
+    const form = document.getElementById('proposalForm');
+    const formData = new FormData(form);
+    
+    // Validate form
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    // Show loading state
+    const sendButton = document.querySelector('#proposalModal .btn-primary');
+    const originalText = sendButton.innerHTML;
+    sendButton.disabled = true;
+    sendButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sending...';
+    
+    // Send the proposal data to the backend
+    fetch('{{ url_for("send_proposal") }}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show success message
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-success alert-dismissible fade show';
+            alertDiv.innerHTML = `
+                <strong>Success!</strong> ${data.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            document.querySelector('#proposalModal .modal-body').insertBefore(alertDiv, form);
+            
+            // Close modal after 3 seconds
+            setTimeout(() => {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('proposalModal'));
+                modal.hide();
+            }, 3000);
+        } else {
+            // Show error message
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-danger alert-dismissible fade show';
+            alertDiv.innerHTML = `
+                <strong>Error!</strong> ${data.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            document.querySelector('#proposalModal .modal-body').insertBefore(alertDiv, form);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        // Show error message
+        const alertDiv = document.createElement('div');
+        alertDiv.className = 'alert alert-danger alert-dismissible fade show';
+        alertDiv.innerHTML = `
+            <strong>Error!</strong> An unexpected error occurred. Please try again.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        document.querySelector('#proposalModal .modal-body').insertBefore(alertDiv, form);
+    })
+    .finally(() => {
+        // Restore button state
+        sendButton.disabled = false;
+        sendButton.innerHTML = originalText;
+    });
+}
 </script>
 {% endblock %} 
