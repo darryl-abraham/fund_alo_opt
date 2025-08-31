@@ -360,12 +360,12 @@ def optimize_fund_allocation(
             raise ValueError(f"No rates found for related banks of branch: {branch_name}")
         
         # 1. Get category weights directly from database (should sum to 100%)
+        # Note: Liquidity constraints are handled separately and don't affect scoring
         category_weights = {
             'product': 0.0,
             'time': 0.0,
             'weighting': 0.0,
-            'bank': 0.0,
-            'liquidity': 0.0
+            'bank': 0.0
         }
         
         # Get category weights directly (these should already sum to 100%)
@@ -388,6 +388,7 @@ def optimize_fund_allocation(
         
         logger.info(f"Category weights: {category_weights}")
         logger.info(f"Total category weight: {sum(category_weights.values())*100:.1f}%")
+        logger.info("Note: Liquidity constraints are handled separately and don't affect scoring")
         
         # 2. Get bank weights (0-1 scale, already normalized)
         bank_weights = {}
@@ -570,6 +571,7 @@ def optimize_fund_allocation(
                 logger.info(f"  Bank: {bank_weight:.3f} × {category_weights['bank']:.3f} = {bank_weight * category_weights['bank']:.3f} ({bank_weight * category_weights['bank']*100:.1f}%)")
                 logger.info(f"  Time: {time_weight:.3f} × {category_weights['time']:.3f} = {time_weight * category_weights['time']:.3f} ({time_weight * category_weights['time']*100:.1f}%)")
                 logger.info(f"  Weighting Category: {category_weights['weighting']:.3f} ({category_weights['weighting']*100:.1f}%)")
+                logger.info(f"  Note: Liquidity constraints don't affect scoring, only fund availability")
                 logger.info(f"  Final Composite Score: {composite_score:.6f}")
                 
                 objective.SetCoefficient(var, composite_score)
@@ -613,7 +615,7 @@ def optimize_fund_allocation(
                   
         if not results:
             logger.warning("Optimization completed but no funds were allocated")
-            logger.warning("Category weights:")
+            logger.warning("Category weights (excluding liquidity):")
             for category, weight in category_weights.items():
                 logger.warning(f"  {category}: {weight}")
             logger.warning("Bank weights:")
@@ -621,6 +623,7 @@ def optimize_fund_allocation(
                 logger.warning(f"  {bank}: {weight}")
             logger.warning("Time weights:")
             logger.warning(filtered_rates[['CD Term', 'time_weight']].to_string())
+            logger.warning("Note: Liquidity constraints only affect fund availability, not scoring")
             return pd.DataFrame(), total_funds
             
         columns = ["Bank Name", "CD Term", "Allocated Amount", "CD Rate", "Expected Return", "ECR Rate", "Estimated ECR Monthly"]

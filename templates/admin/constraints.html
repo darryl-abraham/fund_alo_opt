@@ -318,23 +318,20 @@
                 </div>
                 
                 <!-- Liquidity Constraints -->
-                <div class="card mb-4 category-card {% if liquidity_category_weight == 0 %}disabled{% endif %}" id="liquidity_category_card">
+                <div class="card mb-4 category-card" id="liquidity_category_card">
                     <div class="card-header bg-info text-white position-relative">
                         <h5 class="mb-0"><i class="bi bi-droplet"></i> Liquidity Constraints</h5>
                         <div class="form-check form-switch position-absolute" style="right: 10px; top: 10px;">
                             <input class="form-check-input category-toggle" type="checkbox" id="liquidity_category_toggle" 
-                                   data-category="liquidity" {% if liquidity_category_weight > 0 %}checked{% endif %}>
+                                   data-category="liquidity" checked>
                             <label class="form-check-label text-white" for="liquidity_category_toggle">Enable</label>
                         </div>
                     </div>
                     <div class="card-body">
-                        <!-- Category Weight Slider -->
-                        <div class="category-weight-container">
-                            <span class="category-weight-label">Category Weight:</span>
-                            <input type="range" class="form-range category-weight-slider" id="liquidity_category_weight" 
-                                   name="category_weight" min="0" max="100" step="1" value="{{ liquidity_category_weight * 100 }}"
-                                   {% if liquidity_category_weight == 0 %}disabled{% endif %}>
-                            <span class="category-weight-value" id="liquidity_weight_display">{{ "%.0f%%"|format(liquidity_category_weight * 100) }}</span>
+                        <!-- Info Note -->
+                        <div class="alert alert-info mb-3">
+                            <i class="bi bi-info-circle"></i>
+                            <strong>Note:</strong> Liquidity constraints only affect fund availability (reserve percentage), not the optimization scoring system.
                         </div>
                         
                         <div class="row">
@@ -402,9 +399,46 @@ document.addEventListener('DOMContentLoaded', function() {
         toggle.addEventListener('change', async function() {
             const category = this.dataset.category;
             const categoryCard = document.getElementById(`${category}_category_card`);
+            const isEnabled = this.checked;
+            
+            // Special handling for liquidity constraints (no weight, only affects fund availability)
+            if (category === 'liquidity') {
+                try {
+                    // Send AJAX request to update database
+                    const response = await fetch('{{ url_for("admin_toggle_category") }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `category=${category}&enabled=${isEnabled}`
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        if (isEnabled) {
+                            // Enable the category
+                            categoryCard.classList.remove('disabled');
+                        } else {
+                            // Disable the category
+                            categoryCard.classList.add('disabled');
+                        }
+                    } else {
+                        // Revert the toggle if database update failed
+                        this.checked = !isEnabled;
+                        console.error('Failed to update liquidity category:', result.message);
+                    }
+                } catch (error) {
+                    // Revert the toggle if request failed
+                    this.checked = !isEnabled;
+                    console.error('Error updating liquidity category:', error);
+                }
+                return; // Exit early for liquidity constraints
+            }
+            
+            // Handle other categories with weights
             const slider = document.getElementById(`${category}_category_weight`);
             const display = document.getElementById(`${category}_weight_display`);
-            const isEnabled = this.checked;
             
             try {
                 // Send AJAX request to update database
@@ -419,29 +453,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 const result = await response.json();
                 
                 if (result.success) {
-                                         if (isEnabled) {
-                         // Enable the category
-                         categoryCard.classList.remove('disabled');
-                         slider.disabled = false;
-                         if (slider.value === '0') {
-                             // Calculate default value based on other enabled sliders
-                             const enabledSliders = getEnabledCategorySliders();
-                             const totalValue = enabledSliders.reduce((sum, s) => sum + parseFloat(s.value), 0);
-                             const defaultValue = Math.round((100 - totalValue) / (enabledSliders.length + 1));
-                             slider.value = defaultValue;
-                             display.textContent = defaultValue + '%';
-                             // Redistribute other sliders
-                             updateLinkedCategoryWeights();
-                         }
-                     } else {
-                         // Disable the category
-                         categoryCard.classList.add('disabled');
-                         slider.disabled = true;
-                         slider.value = '0';
-                         display.textContent = '0%';
-                         // Redistribute other sliders
-                         updateLinkedCategoryWeights();
-                     }
+                    if (isEnabled) {
+                        // Enable the category
+                        categoryCard.classList.remove('disabled');
+                        slider.disabled = false;
+                        if (slider.value === '0') {
+                            // Calculate default value based on other enabled sliders
+                            const enabledSliders = getEnabledCategorySliders();
+                            const totalValue = enabledSliders.reduce((sum, s) => sum + parseFloat(s.value), 0);
+                            const defaultValue = Math.round((100 - totalValue) / (enabledSliders.length + 1));
+                            slider.value = defaultValue;
+                            display.textContent = defaultValue + '%';
+                            // Redistribute other sliders
+                            updateLinkedCategoryWeights();
+                        }
+                    } else {
+                        // Disable the category
+                        categoryCard.classList.add('disabled');
+                        slider.disabled = true;
+                        slider.value = '0';
+                        display.textContent = '0%';
+                        // Redistribute other sliders
+                        updateLinkedCategoryWeights();
+                    }
                 } else {
                     // Revert the toggle if database update failed
                     this.checked = !isEnabled;

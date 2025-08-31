@@ -431,12 +431,11 @@ def admin_constraints():
         conn
     )
     
-    # Get category weights
+    # Get category weights (excluding liquidity which doesn't affect scoring)
     product_category_weight = products.iloc[0]['weight'] if not products.empty else 1.0
     time_category_weight = times.iloc[0]['weight'] if not times.empty else 1.0
     weighting_category_weight = weightings.iloc[0]['weight'] if not weightings.empty else 1.0
     bank_category_weight = banks.iloc[0]['weight'] if not banks.empty else 1.0
-    liquidity_category_weight = liquidity.iloc[0]['weight'] if not liquidity.empty else 1.0
     
     conn.close()
     
@@ -450,8 +449,7 @@ def admin_constraints():
         product_category_weight=product_category_weight,
         time_category_weight=time_category_weight,
         weighting_category_weight=weighting_category_weight,
-        bank_category_weight=bank_category_weight,
-        liquidity_category_weight=liquidity_category_weight
+        bank_category_weight=bank_category_weight
     )
 
 @app.route('/admin/constraints/update', methods=['POST'])
@@ -577,7 +575,34 @@ def admin_toggle_category():
             
         logger.info(f"Toggling category {category}: enabled={is_enabled}")
         
-        # Get database connection
+        # Special handling for liquidity constraints (no weight, only affects fund availability)
+        if category == 'liquidity':
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            if is_enabled:
+                # For liquidity, just ensure constraints are enabled (no weight changes)
+                cursor.execute(
+                    """UPDATE constraints 
+                       SET is_enabled = 1
+                       WHERE category = ?""",
+                    (category,)
+                )
+            else:
+                # Disable liquidity constraints
+                cursor.execute(
+                    """UPDATE constraints 
+                       SET is_enabled = 0
+                       WHERE category = ?""",
+                    (category,)
+                )
+            
+            conn.commit()
+            conn.close()
+            
+            return jsonify({'success': True, 'message': f'Liquidity category {"enabled" if is_enabled else "disabled"}'})
+        
+        # Handle other categories with weights
         conn = get_db_connection()
         cursor = conn.cursor()
         
