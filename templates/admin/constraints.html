@@ -484,11 +484,35 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (valueSlider) {
                             valueSlider.disabled = false;
                         }
+                        
+                        // Restore proportional values for linked sliders in this category
+                        const category = constraintCard.className.split(' ').find(cls => 
+                            ['product', 'time', 'bank', 'weighting'].includes(cls));
+                        if (category) {
+                            const sliderFunctions = getSliderFunctions(category);
+                            if (sliderFunctions) {
+                                sliderFunctions.restoreProportionalValue(valueSlider);
+                            }
+                        }
                     } else {
                         // Disable the constraint
                         constraintCard.classList.add('disabled');
                         if (valueSlider) {
                             valueSlider.disabled = true;
+                        }
+                        
+                        // Redistribute values among remaining enabled sliders
+                        const category = constraintCard.className.split(' ').find(cls => 
+                            ['product', 'time', 'bank', 'weighting'].includes(cls));
+                        if (category) {
+                            const sliderFunctions = getSliderFunctions(category);
+                            if (sliderFunctions) {
+                                // Trigger redistribution by updating the first enabled slider
+                                const enabledSliders = sliderFunctions.getEnabledSliders();
+                                if (enabledSliders.length > 0) {
+                                    sliderFunctions.updateLinkedValues(enabledSliders[0]);
+                                }
+                            }
                         }
                     }
                 } else {
@@ -564,18 +588,110 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize category weights to ensure they sum to 100
     updateLinkedCategoryWeights();
 
-    // Link value sliders within each category with database synchronization
+    // Link value sliders within each category with dynamic 100% total behavior
     const linkCategoryValueSliders = (category) => {
-        const sliders = document.querySelectorAll(`.${category}-value-slider`);
+        console.log(`Linking sliders for category: ${category}`);
+        
+        // Special handling for weighting category
+        let sliders;
+        if (category === 'weighting') {
+            sliders = document.querySelectorAll('input[data-weight-name]');
+            console.log(`Found ${sliders.length} weighting sliders by data-weight-name:`, Array.from(sliders).map(s => s.id));
+        } else {
+            sliders = document.querySelectorAll(`.${category}-value-slider`);
+            console.log(`Found ${sliders.length} sliders for ${category}:`, Array.from(sliders).map(s => s.id));
+        }
+        
+        // Function to get only enabled sliders in this category
+        const getEnabledSliders = () => {
+            return Array.from(sliders).filter(slider => {
+                const constraintCard = slider.closest('.constraint-card');
+                const toggle = constraintCard.querySelector('.constraint-toggle');
+                return toggle && toggle.checked && !slider.disabled;
+            });
+        };
+        
+        // Function to update linked values maintaining 100% total
         const updateLinkedValues = (changedSlider) => {
-            const otherSliders = Array.from(sliders).filter(s => s !== changedSlider);
+            console.log('updateLinkedValues called for slider:', changedSlider.id);
+            const enabledSliders = getEnabledSliders();
+            console.log('Enabled sliders:', enabledSliders.length);
+            if (enabledSliders.length <= 1) {
+                console.log('Not enough enabled sliders, returning');
+                return;
+            }
+            
+            const changedValue = parseFloat(changedSlider.value);
+            const otherSliders = enabledSliders.filter(s => s !== changedSlider);
+            console.log('Other sliders to adjust:', otherSliders.length);
+            
+            if (otherSliders.length === 0) {
+                console.log('No other sliders to adjust, returning');
+                return;
+            }
+            
+            // Calculate how much percentage is available for other sliders
+            const remainingPercentage = 100 - changedValue;
+            
+            if (remainingPercentage < 0) {
+                // If changed slider exceeds 100%, cap it and redistribute
+                changedSlider.value = 100;
+                changedSlider.parentElement.querySelector('.constraint-value-display').textContent = '100%';
+                
+                // Set all other sliders to 0
+                otherSliders.forEach(slider => {
+                    slider.value = 0;
+                    const display = slider.parentElement.querySelector('.constraint-value-display');
+                    if (display) {
+                        display.textContent = '0%';
+                    }
+                });
+                return;
+            }
+            
+            // Calculate total of other sliders before adjustment
             const otherTotal = otherSliders.reduce((sum, slider) => sum + parseFloat(slider.value), 0);
-            const remaining = 100 - parseFloat(changedSlider.value);
             
             if (otherTotal > 0) {
+                // Distribute remaining percentage proportionally among other sliders
                 otherSliders.forEach(slider => {
                     const currentValue = parseFloat(slider.value);
-                    const newValue = Math.round((currentValue / otherTotal) * remaining);
+                    const proportion = currentValue / otherTotal;
+                    const newValue = Math.round(proportion * remainingPercentage);
+                    slider.value = newValue;
+                    
+                    const display = slider.parentElement.querySelector('.constraint-value-display');
+                    if (display) {
+                        display.textContent = newValue + '%';
+                    }
+                });
+            } else {
+                // If other sliders are all 0, distribute remaining percentage evenly
+                const evenDistribution = Math.round(remainingPercentage / otherSliders.length);
+                otherSliders.forEach(slider => {
+                    slider.value = evenDistribution;
+                    const display = slider.parentElement.querySelector('.constraint-value-display');
+                    if (display) {
+                        display.textContent = evenDistribution + '%';
+                    }
+                });
+            }
+        };
+        
+        // Function to restore proportional value when a slider is re-enabled
+        const restoreProportionalValue = (enabledSlider) => {
+            const enabledSliders = getEnabledSliders();
+            if (enabledSliders.length <= 1) return;
+            
+            // Calculate total of all enabled sliders
+            const total = enabledSliders.reduce((sum, slider) => sum + parseFloat(slider.value), 0);
+            
+            if (total > 100) {
+                // If total exceeds 100%, redistribute proportionally
+                enabledSliders.forEach(slider => {
+                    const currentValue = parseFloat(slider.value);
+                    const proportion = currentValue / total;
+                    const newValue = Math.round(proportion * 100);
                     slider.value = newValue;
                     
                     const display = slider.parentElement.querySelector('.constraint-value-display');
@@ -586,22 +702,161 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
         
+        // Add event listeners to all sliders in this category
         sliders.forEach(slider => {
+            console.log(`Adding event listener to slider: ${slider.id}`);
             slider.addEventListener('input', function() {
+                console.log(`Slider ${this.id} changed to ${this.value}%`);
                 const display = this.parentElement.querySelector('.constraint-value-display');
                 if (display) {
                     display.textContent = this.value + '%';
                 }
                 
+                // Update linked values to maintain 100% total
+                console.log('Calling updateLinkedValues...');
                 updateLinkedValues(this);
             });
         });
+        
+        // Return functions for external use
+        return {
+            updateLinkedValues,
+            restoreProportionalValue,
+            getEnabledSliders
+        };
     };
 
-    // Link value sliders for each category
-    linkCategoryValueSliders('product');
-    linkCategoryValueSliders('time');
-    linkCategoryValueSliders('bank');
+    // Initialize and link subcategory sliders after DOM is ready
+    const initializeAndLinkSliders = () => {
+        console.log('Initializing and linking subcategory sliders...');
+        
+        // Link value sliders for each category and store the returned functions
+        const productSliderFunctions = linkCategoryValueSliders('product');
+        const timeSliderFunctions = linkCategoryValueSliders('time');
+        const bankSliderFunctions = linkCategoryValueSliders('bank');
+        const weightingSliderFunctions = linkCategoryValueSliders('weighting');
+        
+        console.log('Slider functions created:', {
+            product: !!productSliderFunctions,
+            time: !!timeSliderFunctions,
+            bank: !!bankSliderFunctions,
+            weighting: !!weightingSliderFunctions
+        });
+        
+        // Function to get the appropriate slider functions for a category
+        const getSliderFunctions = (category) => {
+            switch(category) {
+                case 'product': return productSliderFunctions;
+                case 'time': return timeSliderFunctions;
+                case 'bank': return bankSliderFunctions;
+                case 'weighting': return weightingSliderFunctions;
+                default: return null;
+            }
+        };
+        
+        // Initialize subcategory sliders to ensure they sum to 100% within each category
+        const initializeSubcategorySliders = () => {
+            console.log('Initializing subcategory sliders...');
+            ['product', 'time', 'bank', 'weighting'].forEach(category => {
+                console.log(`Initializing ${category} sliders...`);
+                const sliderFunctions = getSliderFunctions(category);
+                if (sliderFunctions) {
+                    console.log(`Found functions for ${category}`);
+                    const enabledSliders = sliderFunctions.getEnabledSliders();
+                    console.log(`Enabled sliders for ${category}:`, enabledSliders.length);
+                    if (enabledSliders.length > 0) {
+                        // Ensure the first enabled slider triggers redistribution
+                        sliderFunctions.updateLinkedValues(enabledSliders[0]);
+                    }
+                } else {
+                    console.log(`No functions found for ${category}`);
+                }
+            });
+        };
+        
+        // Initialize subcategory sliders
+        initializeSubcategorySliders();
+        
+
+        
+        // Make getSliderFunctions available globally for constraint toggle handlers
+        window.getSliderFunctions = getSliderFunctions;
+    };
+    
+    // Initialize and link sliders after a short delay to ensure DOM is ready
+    setTimeout(initializeAndLinkSliders, 100);
+    
+    // Weighting sliders are now handled by the unified linking system
+    // No separate initialization needed
+    
+    // Manual test function - call this in console to test slider linking
+    window.testSliderLinking = () => {
+        console.log('=== TESTING SLIDER LINKING ===');
+        console.log('Product sliders:', document.querySelectorAll('.product-value-slider').length);
+        console.log('Time sliders:', document.querySelectorAll('.time-value-slider').length);
+        console.log('Bank sliders:', document.querySelectorAll('.bank-value-slider').length);
+        
+        const productSlider = document.querySelector('.product-value-slider');
+        if (productSlider) {
+            console.log('Testing product slider event...');
+            productSlider.dispatchEvent(new Event('input'));
+        }
+        
+        console.log('=== END TEST ===');
+    };
+    
+    // Manual test function specifically for weighting sliders
+    window.testWeightingSliders = () => {
+        console.log('=== TESTING WEIGHTING SLIDERS ===');
+        
+        const weightingSliders = document.querySelectorAll('.weighting-slider');
+        console.log('Weighting sliders found:', weightingSliders.length);
+        
+        if (weightingSliders.length >= 2) {
+            const interestSlider = Array.from(weightingSliders).find(slider => 
+                slider.getAttribute('data-weight-name') === 'Interest Rates');
+            const ecrSlider = Array.from(weightingSliders).find(slider => 
+                slider.getAttribute('data-weight-name') === 'ECR Return');
+                
+            if (interestSlider && ecrSlider) {
+                console.log('Found both sliders, testing linking...');
+                console.log('Current Interest value:', interestSlider.value + '%');
+                console.log('Current ECR value:', ecrSlider.value + '%');
+                
+                // Test the linking
+                interestSlider.dispatchEvent(new Event('input'));
+                
+                console.log('After test - Interest value:', interestSlider.value + '%');
+                console.log('After test - ECR value:', ecrSlider.value + '%');
+            } else {
+                console.log('Could not find both sliders');
+            }
+        } else {
+            console.log('Not enough weighting sliders found');
+        }
+        
+        console.log('=== END WEIGHTING TEST ===');
+    };
+    
+    // Simple test function for weighting sliders
+    window.testWeightingLinking = () => {
+        console.log('=== SIMPLE WEIGHTING TEST ===');
+        if (window.interestSlider && window.ecrSlider) {
+            console.log('Testing Interest slider change...');
+            const oldInterest = window.interestSlider.value;
+            const oldEcr = window.ecrSlider.value;
+            
+            // Change interest slider
+            window.interestSlider.value = 50;
+            window.interestSlider.dispatchEvent(new Event('input'));
+            
+            console.log('Interest changed from', oldInterest, 'to', window.interestSlider.value);
+            console.log('ECR changed from', oldEcr, 'to', window.ecrSlider.value);
+        } else {
+            console.log('Weighting sliders not found in window object');
+        }
+        console.log('=== END SIMPLE TEST ===');
+    };
 
     // Special handling for liquidity sliders (UI only, save on button click)
     const liquiditySliders = document.querySelectorAll('.liquidity-slider');
@@ -614,34 +869,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Special handling for weighting sliders
-    const weightingSliders = document.querySelectorAll('.weighting-slider');
-    if (weightingSliders.length === 2) {
-        const interestSlider = Array.from(weightingSliders).find(slider => 
-            slider.getAttribute('data-weight-name') === 'Interest Rates');
-        const ecrSlider = Array.from(weightingSliders).find(slider => 
-            slider.getAttribute('data-weight-name') === 'ECR Return');
-            
-        if (interestSlider && ecrSlider) {
-            const updateLinkedSlider = (primarySlider, secondarySlider) => {
-                const primaryValue = parseFloat(primarySlider.value);
-                const newSecondaryValue = Math.round((1 - primaryValue) * 100) / 100;
-                secondarySlider.value = newSecondaryValue;
-                const displayElement = secondarySlider.parentElement.querySelector('.value-display');
-                if (displayElement) {
-                    displayElement.textContent = newSecondaryValue;
-                }
-            };
-            
-            interestSlider.addEventListener('input', function() {
-                updateLinkedSlider(this, ecrSlider);
-            });
-            
-            ecrSlider.addEventListener('input', function() {
-                updateLinkedSlider(this, interestSlider);
-            });
-        }
-    }
+
 
     // Save all changes functionality - collect all current values and save them
     const saveAllButton = document.querySelector('.save-all-changes');
