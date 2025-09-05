@@ -1119,6 +1119,235 @@ def admin_maturity_optimization():
         flash(f"Error: {str(e)}", 'error')
         return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/rates')
+@admin_required
+def admin_rates():
+    """Admin rates management page."""
+    try:
+        conn = get_db_connection()
+        
+        # Get CD rates data
+        cd_rates = pd.read_sql_query(
+            "SELECT * FROM cd_rates ORDER BY bank_name, cd_term",
+            conn
+        )
+        
+        # Get ECR rates data
+        ecr_rates = pd.read_sql_query(
+            "SELECT * FROM ecr_rates ORDER BY bank_name, bank_code",
+            conn
+        )
+        
+        conn.close()
+        
+        return render_template(
+            'admin/rates.html',
+            cd_rates=cd_rates,
+            ecr_rates=ecr_rates
+        )
+        
+    except Exception as e:
+        logger.exception("Error in admin rates")
+        flash(f"Error loading rates: {str(e)}", 'error')
+        return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/rates/update', methods=['POST'])
+@admin_required
+def admin_update_rates():
+    """Update rates in the database."""
+    try:
+        rate_type = request.form.get('rate_type')  # 'cd' or 'ecr'
+        bank_name = request.form.get('bank_name')
+        bank_code = request.form.get('bank_code', '')
+        
+        if rate_type == 'cd':
+            cd_term = request.form.get('cd_term')
+            cd_rate = float(request.form.get('cd_rate', 0))
+            cdars_term = request.form.get('cdars_term', '')
+            cdars_rate = float(request.form.get('cdars_rate', 0))
+            special = request.form.get('special', '')
+            
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Update CD rates
+            cursor.execute(
+                """UPDATE cd_rates 
+                   SET cd_rate = ?, cdars_term = ?, cdars_rate = ?, special = ?
+                   WHERE bank_name = ? AND cd_term = ?""",
+                (cd_rate, cdars_term, cdars_rate, special, bank_name, cd_term)
+            )
+            
+            if cursor.rowcount == 0:
+                # Insert new record if it doesn't exist
+                cursor.execute(
+                    """INSERT INTO cd_rates (bank_name, bank_code, cd_term, cd_rate, cdars_term, cdars_rate, special)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (bank_name, bank_code, cd_term, cd_rate, cdars_term, cdars_rate, special)
+                )
+            
+            conn.commit()
+            conn.close()
+            
+            flash(f'CD rates updated successfully for {bank_name} - {cd_term}', 'success')
+            
+        elif rate_type == 'ecr':
+            ecr_rate = float(request.form.get('ecr_rate', 0))
+            
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Update ECR rates
+            cursor.execute(
+                """UPDATE ecr_rates 
+                   SET ecr_rate = ?
+                   WHERE bank_name = ? AND bank_code = ?""",
+                (ecr_rate, bank_name, bank_code)
+            )
+            
+            if cursor.rowcount == 0:
+                # Insert new record if it doesn't exist
+                cursor.execute(
+                    """INSERT INTO ecr_rates (bank_name, bank_code, ecr_rate)
+                       VALUES (?, ?, ?)""",
+                    (bank_name, bank_code, ecr_rate)
+                )
+            
+            conn.commit()
+            conn.close()
+            
+            flash(f'ECR rates updated successfully for {bank_name} - {bank_code}', 'success')
+        
+        return redirect(url_for('admin_rates'))
+        
+    except Exception as e:
+        logger.error(f"Error updating rates: {str(e)}")
+        flash(f'Error updating rates: {str(e)}', 'danger')
+        return redirect(url_for('admin_rates'))
+
+@app.route('/admin/rates/add', methods=['POST'])
+@admin_required
+def admin_add_rates():
+    """Add new rates to the database."""
+    try:
+        rate_type = request.form.get('rate_type')  # 'cd' or 'ecr'
+        bank_name = request.form.get('bank_name')
+        bank_code = request.form.get('bank_code', '')
+        
+        if rate_type == 'cd':
+            cd_term = request.form.get('cd_term')
+            cd_rate = float(request.form.get('cd_rate', 0))
+            cdars_term = request.form.get('cdars_term', '')
+            cdars_rate = float(request.form.get('cdars_rate', 0))
+            special = request.form.get('special', '')
+            
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Check if record already exists
+            cursor.execute(
+                "SELECT COUNT(*) FROM cd_rates WHERE bank_name = ? AND cd_term = ?",
+                (bank_name, cd_term)
+            )
+            
+            if cursor.fetchone()[0] > 0:
+                flash(f'CD rates already exist for {bank_name} - {cd_term}', 'warning')
+                return redirect(url_for('admin_rates'))
+            
+            # Insert new CD rates record
+            cursor.execute(
+                """INSERT INTO cd_rates (bank_name, bank_code, cd_term, cd_rate, cdars_term, cdars_rate, special)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (bank_name, bank_code, cd_term, cd_rate, cdars_term, cdars_rate, special)
+            )
+            
+            conn.commit()
+            conn.close()
+            
+            flash(f'CD rates added successfully for {bank_name} - {cd_term}', 'success')
+            
+        elif rate_type == 'ecr':
+            ecr_rate = float(request.form.get('ecr_rate', 0))
+            
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Check if record already exists
+            cursor.execute(
+                "SELECT COUNT(*) FROM ecr_rates WHERE bank_name = ? AND bank_code = ?",
+                (bank_name, bank_code)
+            )
+            
+            if cursor.fetchone()[0] > 0:
+                flash(f'ECR rates already exist for {bank_name} - {bank_code}', 'warning')
+                return redirect(url_for('admin_rates'))
+            
+            # Insert new ECR rates record
+            cursor.execute(
+                """INSERT INTO ecr_rates (bank_name, bank_code, ecr_rate)
+                   VALUES (?, ?, ?)""",
+                (bank_name, bank_code, ecr_rate)
+            )
+            
+            conn.commit()
+            conn.close()
+            
+            flash(f'ECR rates added successfully for {bank_name} - {bank_code}', 'success')
+        
+        return redirect(url_for('admin_rates'))
+        
+    except Exception as e:
+        logger.error(f"Error adding rates: {str(e)}")
+        flash(f'Error adding rates: {str(e)}', 'danger')
+        return redirect(url_for('admin_rates'))
+
+@app.route('/admin/rates/delete', methods=['POST'])
+@admin_required
+def admin_delete_rates():
+    """Delete rates from the database."""
+    try:
+        rate_type = request.form.get('rate_type')  # 'cd' or 'ecr'
+        bank_name = request.form.get('bank_name')
+        
+        if rate_type == 'cd':
+            cd_term = request.form.get('cd_term')
+            
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                "DELETE FROM cd_rates WHERE bank_name = ? AND cd_term = ?",
+                (bank_name, cd_term)
+            )
+            
+            conn.commit()
+            conn.close()
+            
+            flash(f'CD rates deleted successfully for {bank_name} - {cd_term}', 'success')
+            
+        elif rate_type == 'ecr':
+            bank_code = request.form.get('bank_code')
+            
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                "DELETE FROM ecr_rates WHERE bank_name = ? AND bank_code = ?",
+                (bank_name, bank_code)
+            )
+            
+            conn.commit()
+            conn.close()
+            
+            flash(f'ECR rates deleted successfully for {bank_name} - {bank_code}', 'success')
+        
+        return redirect(url_for('admin_rates'))
+        
+    except Exception as e:
+        logger.error(f"Error deleting rates: {str(e)}")
+        flash(f'Error deleting rates: {str(e)}', 'danger')
+        return redirect(url_for('admin_rates'))
+
 def init_db():
     """
     Initialize the database with required tables if they don't exist.

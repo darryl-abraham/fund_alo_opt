@@ -1,0 +1,546 @@
+{% extends "base.html" %}
+
+{% block title %}Rates Management - Fund Allocation Optimizer{% endblock %}
+
+{% block extra_css %}
+<style>
+    .rates-table {
+        font-size: 0.9rem;
+    }
+    .rates-table th {
+        background-color: #f8f9fa;
+        font-weight: 600;
+        border-top: none;
+    }
+    .rates-table .form-control {
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+    }
+    .rates-table .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+    .editable-cell {
+        position: relative;
+    }
+    .editable-cell input {
+        border: 1px solid #ced4da;
+        border-radius: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        width: 100%;
+    }
+    .editable-cell input:focus {
+        border-color: #80bdff;
+        box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    }
+    .action-buttons {
+        white-space: nowrap;
+    }
+    .add-form {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    .section-header {
+        background: linear-gradient(135deg, #007bff, #0056b3);
+        color: white;
+        padding: 0.75rem 1rem;
+        border-radius: 0.375rem 0.375rem 0 0;
+        margin-bottom: 0;
+        font-weight: 600;
+    }
+    .section-card {
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        margin-bottom: 2rem;
+        overflow: hidden;
+    }
+    .section-body {
+        padding: 1rem;
+    }
+    .bank-name {
+        font-weight: 600;
+        color: #495057;
+    }
+    .rate-value {
+        font-weight: 500;
+        color: #28a745;
+    }
+    .special-indicator {
+        color: #ffc107;
+        font-weight: 600;
+    }
+    .accordion-button {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        font-weight: 600;
+    }
+    .accordion-button:not(.collapsed) {
+        background-color: #e9ecef;
+        border-color: #adb5bd;
+    }
+    .accordion-button:focus {
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    }
+    .accordion-item {
+        border: 1px solid #dee2e6;
+        margin-bottom: 0.5rem;
+        border-radius: 0.375rem;
+    }
+    .accordion-item:first-child {
+        border-top-left-radius: 0.375rem;
+        border-top-right-radius: 0.375rem;
+    }
+    .accordion-item:last-child {
+        border-bottom-left-radius: 0.375rem;
+        border-bottom-right-radius: 0.375rem;
+    }
+    .accordion-body {
+        background-color: #ffffff;
+    }
+    .badge {
+        font-size: 0.75rem;
+    }
+    .table-sm th,
+    .table-sm td {
+        padding: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-3">
+        {% include "admin/sidebar.html" %}
+    </div>
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-percent"></i> Rates Management</h4>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <h5><i class="bi bi-info-circle"></i> About Rates Management</h5>
+                    <p>Manage CD rates and ECR rates directly from the database. You can view, edit, add, and delete rates for all banks.</p>
+                    <ul>
+                        <li><strong>CD Rates</strong>: Certificate of Deposit rates by term and bank</li>
+                        <li><strong>ECR Rates</strong>: Excess Cash Reserve rates by bank and product type</li>
+                    </ul>
+                    <p class="mb-0">Changes are saved immediately to the database and will be reflected in optimization calculations.</p>
+                </div>
+                
+                <!-- CD Rates Section -->
+                <div class="section-card">
+                    <div class="section-header">
+                        <h5 class="mb-0"><i class="bi bi-bank"></i> CD Rates Management</h5>
+                    </div>
+                    <div class="section-body">
+                        <!-- Add New CD Rate Form -->
+                        <div class="add-form">
+                            <h6 class="mb-3"><i class="bi bi-plus-circle"></i> Add New CD Rate</h6>
+                            <form method="POST" action="{{ url_for('admin_add_rates') }}" class="row g-3">
+                                <input type="hidden" name="rate_type" value="cd">
+                                <div class="col-md-3">
+                                    <label for="cd_bank_name" class="form-label">Bank Name</label>
+                                    <input type="text" class="form-control" id="cd_bank_name" name="bank_name" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <label for="cd_bank_code" class="form-label">Bank Code</label>
+                                    <input type="text" class="form-control" id="cd_bank_code" name="bank_code" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <label for="cd_term" class="form-label">CD Term</label>
+                                    <input type="text" class="form-control" id="cd_term" name="cd_term" placeholder="e.g., 2 months" required>
+                                </div>
+                                <div class="col-md-1">
+                                    <label for="cd_rate" class="form-label">CD Rate</label>
+                                    <input type="number" class="form-control" id="cd_rate" name="cd_rate" step="0.01" min="0" max="100" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <label for="cdars_term" class="form-label">CDARS Term</label>
+                                    <input type="text" class="form-control" id="cdars_term" name="cdars_term" placeholder="e.g., 4 week">
+                                </div>
+                                <div class="col-md-1">
+                                    <label for="cdars_rate" class="form-label">CDARS Rate</label>
+                                    <input type="number" class="form-control" id="cdars_rate" name="cdars_rate" step="0.01" min="0" max="100">
+                                </div>
+                                <div class="col-md-1">
+                                    <label for="special" class="form-label">Special</label>
+                                    <input type="text" class="form-control" id="special" name="special" placeholder="Yes/No">
+                                </div>
+                                <div class="col-12">
+                                    <button type="submit" class="btn btn-success btn-sm">
+                                        <i class="bi bi-plus"></i> Add CD Rate
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- CD Rates Grouped by Bank -->
+                        <div class="accordion" id="cdRatesAccordion">
+                            {% set grouped_cd_rates = {} %}
+                            {% for rate in cd_rates.itertuples() %}
+                                {% if rate.bank_name not in grouped_cd_rates %}
+                                    {% set _ = grouped_cd_rates.update({rate.bank_name: []}) %}
+                                {% endif %}
+                                {% set _ = grouped_cd_rates[rate.bank_name].append(rate) %}
+                            {% endfor %}
+                            
+                            {% for bank_name, rates in grouped_cd_rates.items() %}
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="cdHeading{{ loop.index }}">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                            data-bs-target="#cdCollapse{{ loop.index }}" aria-expanded="false" 
+                                            aria-controls="cdCollapse{{ loop.index }}">
+                                        <div class="d-flex justify-content-between align-items-center w-100 me-3">
+                                            <div>
+                                                <i class="bi bi-bank me-2"></i>
+                                                <strong>{{ bank_name }}</strong>
+                                                <span class="badge bg-primary ms-2">{{ rates|length }} rate{{ 's' if rates|length != 1 else '' }}</span>
+                                            </div>
+                                            <div class="text-muted small">
+                                                {{ rates[0].bank_code }}
+                                            </div>
+                                        </div>
+                                    </button>
+                                </h2>
+                                <div id="cdCollapse{{ loop.index }}" class="accordion-collapse collapse" 
+                                     aria-labelledby="cdHeading{{ loop.index }}" data-bs-parent="#cdRatesAccordion">
+                                    <div class="accordion-body p-0">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm table-hover mb-0">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>CD Term</th>
+                                                        <th>CD Rate</th>
+                                                        <th>CDARS Term</th>
+                                                        <th>CDARS Rate</th>
+                                                        <th>Special</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for rate in rates %}
+                                                    <tr>
+                                                        <td class="fw-medium">{{ rate.cd_term }}</td>
+                                                        <td class="rate-value">{{ "%.2f"|format(rate.cd_rate) }}%</td>
+                                                        <td>{{ rate.cdars_term }}</td>
+                                                        <td class="rate-value">{{ "%.2f"|format(rate.cdars_rate) }}%</td>
+                                                        <td>
+                                                            {% if rate.special %}
+                                                                <span class="special-indicator">{{ rate.special }}</span>
+                                                            {% endif %}
+                                                        </td>
+                                                        <td class="action-buttons">
+                                                            <button class="btn btn-primary btn-sm edit-cd-rate" 
+                                                                    data-bank="{{ rate.bank_name }}"
+                                                                    data-code="{{ rate.bank_code }}"
+                                                                    data-term="{{ rate.cd_term }}"
+                                                                    data-cd-rate="{{ rate.cd_rate }}"
+                                                                    data-cdars-term="{{ rate.cdars_term }}"
+                                                                    data-cdars-rate="{{ rate.cdars_rate }}"
+                                                                    data-special="{{ rate.special }}">
+                                                                <i class="bi bi-pencil"></i>
+                                                            </button>
+                                                            <form method="POST" action="{{ url_for('admin_delete_rates') }}" class="d-inline">
+                                                                <input type="hidden" name="rate_type" value="cd">
+                                                                <input type="hidden" name="bank_name" value="{{ rate.bank_name }}">
+                                                                <input type="hidden" name="cd_term" value="{{ rate.cd_term }}">
+                                                                <button type="submit" class="btn btn-danger btn-sm" 
+                                                                        onclick="return confirm('Are you sure you want to delete this CD rate?')">
+                                                                    <i class="bi bi-trash"></i>
+                                                                </button>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- ECR Rates Section -->
+                <div class="section-card">
+                    <div class="section-header">
+                        <h5 class="mb-0"><i class="bi bi-cash-stack"></i> ECR Rates Management</h5>
+                    </div>
+                    <div class="section-body">
+                        <!-- Add New ECR Rate Form -->
+                        <div class="add-form">
+                            <h6 class="mb-3"><i class="bi bi-plus-circle"></i> Add New ECR Rate</h6>
+                            <form method="POST" action="{{ url_for('admin_add_rates') }}" class="row g-3">
+                                <input type="hidden" name="rate_type" value="ecr">
+                                <div class="col-md-4">
+                                    <label for="ecr_bank_name" class="form-label">Bank Name</label>
+                                    <input type="text" class="form-control" id="ecr_bank_name" name="bank_name" required>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="ecr_bank_code" class="form-label">Bank Code</label>
+                                    <input type="text" class="form-control" id="ecr_bank_code" name="bank_code" required>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="ecr_rate" class="form-label">ECR Rate</label>
+                                    <input type="number" class="form-control" id="ecr_rate" name="ecr_rate" step="0.01" min="0" max="100" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">&nbsp;</label>
+                                    <button type="submit" class="btn btn-success btn-sm d-block">
+                                        <i class="bi bi-plus"></i> Add ECR Rate
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- ECR Rates Grouped by Bank -->
+                        <div class="accordion" id="ecrRatesAccordion">
+                            {% set grouped_ecr_rates = {} %}
+                            {% for rate in ecr_rates.itertuples() %}
+                                {% if rate.bank_name not in grouped_ecr_rates %}
+                                    {% set _ = grouped_ecr_rates.update({rate.bank_name: []}) %}
+                                {% endif %}
+                                {% set _ = grouped_ecr_rates[rate.bank_name].append(rate) %}
+                            {% endfor %}
+                            
+                            {% for bank_name, rates in grouped_ecr_rates.items() %}
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="ecrHeading{{ loop.index }}">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                            data-bs-target="#ecrCollapse{{ loop.index }}" aria-expanded="false" 
+                                            aria-controls="ecrCollapse{{ loop.index }}">
+                                        <div class="d-flex justify-content-between align-items-center w-100 me-3">
+                                            <div>
+                                                <i class="bi bi-cash-stack me-2"></i>
+                                                <strong>{{ bank_name }}</strong>
+                                                <span class="badge bg-success ms-2">{{ rates|length }} rate{{ 's' if rates|length != 1 else '' }}</span>
+                                            </div>
+                                            <div class="text-muted small">
+                                                {{ rates[0].bank_code }}
+                                            </div>
+                                        </div>
+                                    </button>
+                                </h2>
+                                <div id="ecrCollapse{{ loop.index }}" class="accordion-collapse collapse" 
+                                     aria-labelledby="ecrHeading{{ loop.index }}" data-bs-parent="#ecrRatesAccordion">
+                                    <div class="accordion-body p-0">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm table-hover mb-0">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>Bank Code</th>
+                                                        <th>ECR Rate</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for rate in rates %}
+                                                    <tr>
+                                                        <td class="fw-medium">{{ rate.bank_code }}</td>
+                                                        <td class="rate-value">{{ "%.2f"|format(rate.ecr_rate) }}%</td>
+                                                        <td class="action-buttons">
+                                                            <button class="btn btn-primary btn-sm edit-ecr-rate" 
+                                                                    data-bank="{{ rate.bank_name }}"
+                                                                    data-code="{{ rate.bank_code }}"
+                                                                    data-rate="{{ rate.ecr_rate }}">
+                                                                <i class="bi bi-pencil"></i>
+                                                            </button>
+                                                            <form method="POST" action="{{ url_for('admin_delete_rates') }}" class="d-inline">
+                                                                <input type="hidden" name="rate_type" value="ecr">
+                                                                <input type="hidden" name="bank_name" value="{{ rate.bank_name }}">
+                                                                <input type="hidden" name="bank_code" value="{{ rate.bank_code }}">
+                                                                <button type="submit" class="btn btn-danger btn-sm" 
+                                                                        onclick="return confirm('Are you sure you want to delete this ECR rate?')">
+                                                                    <i class="bi bi-trash"></i>
+                                                                </button>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit CD Rate Modal -->
+<div class="modal fade" id="editCdRateModal" tabindex="-1" aria-labelledby="editCdRateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editCdRateModalLabel">Edit CD Rate</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('admin_update_rates') }}">
+                <div class="modal-body">
+                    <input type="hidden" name="rate_type" value="cd">
+                    <input type="hidden" name="bank_name" id="edit_cd_bank_name">
+                    <input type="hidden" name="cd_term" id="edit_cd_term">
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="edit_cd_bank_code" class="form-label">Bank Code</label>
+                            <input type="text" class="form-control" id="edit_cd_bank_code" name="bank_code" readonly>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="edit_cd_rate" class="form-label">CD Rate (%)</label>
+                            <input type="number" class="form-control" id="edit_cd_rate" name="cd_rate" step="0.01" min="0" max="100" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="edit_cdars_term" class="form-label">CDARS Term</label>
+                            <input type="text" class="form-control" id="edit_cdars_term" name="cdars_term">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="edit_cdars_rate" class="form-label">CDARS Rate (%)</label>
+                            <input type="number" class="form-control" id="edit_cdars_rate" name="cdars_rate" step="0.01" min="0" max="100">
+                        </div>
+                        <div class="col-md-12">
+                            <label for="edit_special" class="form-label">Special</label>
+                            <input type="text" class="form-control" id="edit_special" name="special" placeholder="Yes/No">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit ECR Rate Modal -->
+<div class="modal fade" id="editEcrRateModal" tabindex="-1" aria-labelledby="editEcrRateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editEcrRateModalLabel">Edit ECR Rate</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('admin_update_rates') }}">
+                <div class="modal-body">
+                    <input type="hidden" name="rate_type" value="ecr">
+                    <input type="hidden" name="bank_name" id="edit_ecr_bank_name">
+                    <input type="hidden" name="bank_code" id="edit_ecr_bank_code">
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Bank Name</label>
+                            <input type="text" class="form-control" id="edit_ecr_bank_display" readonly>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Bank Code</label>
+                            <input type="text" class="form-control" id="edit_ecr_code_display" readonly>
+                        </div>
+                        <div class="col-md-12">
+                            <label for="edit_ecr_rate" class="form-label">ECR Rate (%)</label>
+                            <input type="number" class="form-control" id="edit_ecr_rate" name="ecr_rate" step="0.01" min="0" max="100" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle CD rate edit buttons
+    const editCdButtons = document.querySelectorAll('.edit-cd-rate');
+    editCdButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const bank = this.dataset.bank;
+            const code = this.dataset.code;
+            const term = this.dataset.term;
+            const cdRate = this.dataset.cdRate;
+            const cdarsTerm = this.dataset.cdarsTerm;
+            const cdarsRate = this.dataset.cdarsRate;
+            const special = this.dataset.special;
+            
+            // Populate modal fields
+            document.getElementById('edit_cd_bank_name').value = bank;
+            document.getElementById('edit_cd_term').value = term;
+            document.getElementById('edit_cd_bank_code').value = code;
+            document.getElementById('edit_cd_rate').value = cdRate;
+            document.getElementById('edit_cdars_term').value = cdarsTerm;
+            document.getElementById('edit_cdars_rate').value = cdarsRate;
+            document.getElementById('edit_special').value = special;
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('editCdRateModal'));
+            modal.show();
+        });
+    });
+    
+    // Handle ECR rate edit buttons
+    const editEcrButtons = document.querySelectorAll('.edit-ecr-rate');
+    editEcrButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const bank = this.dataset.bank;
+            const code = this.dataset.code;
+            const rate = this.dataset.rate;
+            
+            // Populate modal fields
+            document.getElementById('edit_ecr_bank_name').value = bank;
+            document.getElementById('edit_ecr_bank_code').value = code;
+            document.getElementById('edit_ecr_bank_display').value = bank;
+            document.getElementById('edit_ecr_code_display').value = code;
+            document.getElementById('edit_ecr_rate').value = rate;
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('editEcrRateModal'));
+            modal.show();
+        });
+    });
+    
+    // Auto-populate bank codes for common banks
+    const bankCodeMap = {
+        'Alliance Assoc. Bank': 'AAB',
+        'Banco Popular': 'BPOP',
+        'Bank United': 'BU',
+        'City National': 'CNB',
+        'Enterprise Bank & Trust': 'Enterprise Bank & Trust',
+        'First Citizens Bank': 'FCB',
+        'Harmony Bank': 'HAR',
+        'Pacific Premier Bank': 'PPB',
+        'Pacific Western': 'PWB',
+        'SouthState': 'SSB',
+        'SunWest Bank': 'SWB',
+        'Capital One': 'CONA'
+    };
+    
+    // Auto-populate bank codes when bank name is entered
+    const bankNameInputs = document.querySelectorAll('input[name="bank_name"]');
+    bankNameInputs.forEach(input => {
+        input.addEventListener('input', function() {
+            const bankName = this.value;
+            const bankCodeInput = this.closest('form').querySelector('input[name="bank_code"]');
+            if (bankCodeMap[bankName] && bankCodeInput) {
+                bankCodeInput.value = bankCodeMap[bankName];
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

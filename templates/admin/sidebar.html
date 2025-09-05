@@ -14,6 +14,9 @@
     <a href="{{ url_for('admin_constraints') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'admin_constraints' %}active{% endif %}">
         <i class="bi bi-sliders"></i> Optimization Constraints
     </a>
+    <a href="{{ url_for('admin_rates') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'admin_rates' %}active{% endif %}">
+        <i class="bi bi-percent"></i> Rates Management
+    </a>
     <a href="{{ url_for('admin_change_password') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'admin_change_password' %}active{% endif %}">
         <i class="bi bi-key"></i> Change Password
     </a>
