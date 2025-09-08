@@ -281,7 +281,7 @@ def optimize_fund_allocation(
     association_name: str,
     custom_allocation: Optional[float] = None,  # Add parameter for custom allocation
     time_limit_seconds: int = 30
-) -> Tuple[pd.DataFrame, float]:
+) -> Tuple[pd.DataFrame, float, float, float]:
     """
     Optimize fund allocation across banks and terms using a composite score based on:
     1. Category weights (sum to 100%) for each constraint category
@@ -588,6 +588,8 @@ def optimize_fund_allocation(
         # Create results with actual rates for reporting
         results = []
         total_ecr = 0
+        weighted_rate_sum = 0
+        total_amount = 0
         
         for (bank, term), var in allocation.items():
             if var.solution_value() > 0:
@@ -602,6 +604,10 @@ def optimize_fund_allocation(
                 ecr_rate = ecr_rates.get((bank, product_type), 0)
                 estimated_ecr = allocated_amount * ecr_rate / 1200
                 total_ecr += estimated_ecr
+                
+                # Calculate weighted rate (amount * rate)
+                weighted_rate_sum += allocated_amount * cd_rate
+                total_amount += allocated_amount
                 
                 results.append([
                     bank,
@@ -624,7 +630,7 @@ def optimize_fund_allocation(
             logger.warning("Time weights:")
             logger.warning(filtered_rates[['CD Term', 'time_weight']].to_string())
             logger.warning("Note: Liquidity constraints only affect fund availability, not scoring")
-            return pd.DataFrame(), total_funds
+            return pd.DataFrame(), total_funds, 0, 0
             
         columns = ["Bank Name", "CD Term", "Allocated Amount", "CD Rate", "Expected Return", "ECR Rate", "Estimated ECR Monthly"]
         df = pd.DataFrame(results, columns=columns)
@@ -641,7 +647,7 @@ def optimize_fund_allocation(
         
         final_df = pd.concat([df, summary_row], ignore_index=True)
         
-        return final_df, total_funds
+        return final_df, total_funds, weighted_rate_sum, total_amount
         
     except Exception as e:
         logger.error(f"Optimization error: {str(e)}")
@@ -813,7 +819,7 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
                 }
         
         # Run optimization with optional custom allocation amount
-        result_df, total_funds = optimize_fund_allocation(
+        result_df, total_funds, weighted_rate_sum, total_amount = optimize_fund_allocation(
             bank_ranking_df,
             bank_rates_df,
             constraints,
@@ -845,7 +851,7 @@ def run_optimization(params: Dict[str, Any]) -> Dict[str, Any]:
             'summary': {
                 'total_allocated': summary['Allocated Amount'],
                 'total_return': summary['Expected Return'],
-                'weighted_avg_rate': summary['Expected Return'] * 100 / summary['Allocated Amount'] if summary['Allocated Amount'] > 0 else 0,
+                'weighted_avg_rate': (weighted_rate_sum / total_amount) if total_amount > 0 else 0,
                 'total_funds': total_funds,
                 'optimized_ecr_monthly': summary['Estimated ECR Monthly'],
                 'current_ecr_monthly': current_summary['monthly_ecr'],

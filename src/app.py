@@ -81,11 +81,75 @@ def index():
     try:
         branches = db_utils.get_branches()
         associations = db_utils.get_associations()
-        return render_template('index.html', branches=branches, associations=associations)
+        
+        # Get pre-selected values from URL parameters (for links from maturity optimization)
+        selected_association = request.args.get('association', '')
+        selected_branch = request.args.get('branch', '')
+        auto_optimize = request.args.get('auto_optimize', 'false').lower() == 'true'
+        
+        # If both association and branch are provided and auto_optimize is true, run optimization automatically
+        if selected_association and selected_branch and auto_optimize:
+            try:
+                # Get the association's current balance
+                conn = db_utils.get_db_connection()
+                query = """
+                SELECT current_balance 
+                FROM test_data 
+                WHERE association_name = ? 
+                LIMIT 1
+                """
+                result = conn.execute(query, (selected_association,)).fetchone()
+                conn.close()
+                
+                if result:
+                    total_funds = result[0]
+                    
+                    # Prepare optimization parameters (same as maturity optimization)
+                    params = {
+                        'branch_name': selected_branch,
+                        'association_name': selected_association,
+                        'allocation_amount': total_funds  # Use same parameter name as maturity optimization
+                    }
+                    
+                    # Run optimization
+                    from optimizer import run_optimization
+                    results = run_optimization(params)
+                    
+                    if results['success']:
+                        # Get branch relationships for the results page
+                        branch_relationships = optimizer.get_branch_relationships(params['branch_name'])
+                        related_banks = []
+                        for bank_col in optimizer.BranchRelationshipsColumns.__dict__.values():
+                            if isinstance(bank_col, str) and bank_col != optimizer.BranchRelationshipsColumns.BRANCH_NAME:
+                                try:
+                                    if branch_relationships[bank_col].iloc[0] == 1:
+                                        bank_name = bank_col.replace('_', ' ').title()
+                                        related_banks.append(bank_name)
+                                except KeyError:
+                                    continue
+                        
+                        # Store results in session
+                        session['results'] = results
+                        
+                        # Render results page directly
+                        return render_template('results.html', results=results, params=params, related_banks=related_banks)
+                    else:
+                        flash(f"Optimization failed: {results.get('message', 'Unknown error')}", 'error')
+                else:
+                    flash(f"Could not find balance for association: {selected_association}", 'error')
+            except Exception as e:
+                logger.exception("Error running auto-optimization")
+                flash(f"Error running optimization: {str(e)}", 'error')
+        
+        return render_template('index.html', 
+                             branches=branches, 
+                             associations=associations,
+                             selected_association=selected_association,
+                             selected_branch=selected_branch)
     except Exception as e:
         logger.exception("Error loading data for index page")
         flash(f"Error loading data: {str(e)}", 'error')
-        return render_template('index.html', branches=[], associations=[])
+        return render_template('index.html', branches=[], associations=[], selected_association='', selected_branch='')
 
 @app.route('/api/optimize', methods=['POST'])
 def api_optimize():
@@ -166,6 +230,47 @@ def get_associations():
         
     except Exception as e:
         logger.exception("Error getting association list")
+        return jsonify({
+            'success': False,
+            'message': f"Error accessing database: {str(e)}"
+        }), 500
+
+@app.route('/api/get_association_balance', methods=['POST'])
+def get_association_balance():
+    """API endpoint to get the current balance for a specific association"""
+    try:
+        association_name = request.form.get('association_name')
+        
+        if not association_name:
+            return jsonify({
+                'success': False,
+                'message': 'Association name is required'
+            }), 400
+        
+        # Get the association's current balance from the database
+        conn = db_utils.get_db_connection()
+        query = """
+        SELECT current_balance 
+        FROM test_data 
+        WHERE association_name = ? 
+        LIMIT 1
+        """
+        result = conn.execute(query, (association_name,)).fetchone()
+        conn.close()
+        
+        if result:
+            return jsonify({
+                'success': True,
+                'balance': result[0]
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Association not found'
+            }), 404
+            
+    except Exception as e:
+        logger.exception("Error getting association balance")
         return jsonify({
             'success': False,
             'message': f"Error accessing database: {str(e)}"
@@ -1015,12 +1120,16 @@ def download_analysis_report():
         flash(f"Error generating report: {str(e)}", 'error')
         return redirect(url_for('admin_analysis'))
 
-@app.route('/admin/maturity_optimization', methods=['GET', 'POST'])
+@app.route('/admin/maturity_filter', methods=['GET', 'POST'])
 @admin_required
-def admin_maturity_optimization():
-    """Admin maturity optimization dashboard"""
+def admin_maturity_filter():
+    """Admin maturity filter dashboard"""
     try:
         if request.method == 'POST':
+            # Clear any existing results to ensure fresh display
+            if 'maturity_results' in session:
+                del session['maturity_results']
+            
             # Get parameters from form
             months_ahead = int(request.form.get('months_ahead', 3))
             min_balance = float(request.form.get('min_balance', 100000))
@@ -1028,12 +1137,22 @@ def admin_maturity_optimization():
             investment_types = request.form.getlist('investment_types')
             excluded_banks = request.form.getlist('excluded_banks')
             
-            # Import maturity optimizer
-            from maturity_optimizer import MaturityOptimizer
+            # Store current parameters in session for reference
+            session['maturity_params'] = {
+                'months_ahead': months_ahead,
+                'min_balance': min_balance,
+                'max_balance': max_balance,
+                'investment_types': investment_types,
+                'excluded_banks': excluded_banks,
+                'timestamp': datetime.now().isoformat()
+            }
             
-            # Initialize and run optimization
-            maturity_opt = MaturityOptimizer()
-            results = maturity_opt.run_maturity_optimization(
+            # Import maturity filter
+            from maturity_filter import MaturityFilter
+            
+            # Initialize and run filtering and batch optimization
+            maturity_filter = MaturityFilter()
+            results = maturity_filter.run_maturity_filtering(
                 months_ahead=months_ahead,
                 min_balance=min_balance,
                 max_balance=max_balance,
@@ -1048,7 +1167,16 @@ def admin_maturity_optimization():
             else:
                 flash(f'Maturity optimization failed: {results["message"]}', 'error')
             
-            return redirect(url_for('admin_maturity_optimization'))
+            return redirect(url_for('admin_maturity_filter'))
+        
+        # Handle clear results request
+        if request.args.get('clear_results') == 'true':
+            if 'maturity_results' in session:
+                del session['maturity_results']
+            if 'maturity_params' in session:
+                del session['maturity_params']
+            flash('Results cleared successfully!', 'info')
+            return redirect(url_for('admin_maturity_filter'))
         
         # Check for download requests
         download_type = request.args.get('download')
@@ -1075,9 +1203,9 @@ def admin_maturity_optimization():
             
             elif download_type == 'summary':
                 # Generate markdown summary download
-                from maturity_optimizer import MaturityOptimizer
-                maturity_opt = MaturityOptimizer()
-                markdown_summary = maturity_opt.generate_markdown_summary(maturity_results['summary'])
+                from maturity_filter import MaturityFilter
+                maturity_filter = MaturityFilter()
+                markdown_summary = maturity_filter.generate_markdown_summary(maturity_results['summary'])
                 
                 return send_file(
                     io.BytesIO(markdown_summary.encode('utf-8')),
@@ -1088,6 +1216,7 @@ def admin_maturity_optimization():
         
         # GET request - display form and results
         maturity_results = session.get('maturity_results')
+        maturity_params = session.get('maturity_params')
         
         # Get available investment types and banks for the form
         try:
@@ -1108,8 +1237,9 @@ def admin_maturity_optimization():
             banks = pd.DataFrame()
         
         return render_template(
-            'admin/maturity_optimization.html',
+            'admin/maturity_filter.html',
             maturity_results=maturity_results,
+            maturity_params=maturity_params,
             investment_types=investment_types['investment_type'].tolist() if not investment_types.empty else [],
             banks=banks['bank_name'].tolist() if not banks.empty else []
         )

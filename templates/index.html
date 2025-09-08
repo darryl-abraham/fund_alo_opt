@@ -34,7 +34,7 @@
                                             <select class="form-select" id="branch_name" name="branch_name" required>
                                                 <option value="">Select a branch...</option>
                                                 {% for branch in branches %}
-                                                    <option value="{{ branch }}">{{ branch }}</option>
+                                                    <option value="{{ branch }}" {% if branch == selected_branch %}selected{% endif %}>{{ branch }}</option>
                                                 {% endfor %}
                                             </select>
                                             <div class="form-text">
@@ -62,7 +62,7 @@
                                             <select class="form-select" id="association_name" name="association_name" required>
                                                 <option value="">Select an association...</option>
                                                 {% for association in associations %}
-                                                    <option value="{{ association.association_name }}" data-branch="{{ association.branch_name }}">{{ association.association_name }}</option>
+                                                    <option value="{{ association.association_name }}" data-branch="{{ association.branch_name }}" {% if association.association_name == selected_association %}selected{% endif %}>{{ association.association_name }}</option>
                                                 {% endfor %}
                                             </select>
                                             <div class="form-text">
@@ -98,16 +98,56 @@ document.addEventListener('DOMContentLoaded', function() {
     const associationSelect = document.getElementById('association_name');
     const allAssociations = Array.from(associationSelect.options);
 
-    branchSelect.addEventListener('change', function() {
-        const selectedBranch = this.value;
+    // Function to filter associations based on selected branch
+    function filterAssociationsByBranch(selectedBranch) {
         associationSelect.innerHTML = '';
-
         const filteredAssociations = allAssociations.filter(option => 
             option.getAttribute('data-branch') === selectedBranch || option.value === ''
         );
-
         filteredAssociations.forEach(option => associationSelect.appendChild(option));
+    }
+
+    // Function to auto-populate total funds when association is selected
+    function populateTotalFunds(associationName) {
+        if (associationName) {
+            // Make an AJAX call to get the association's current balance
+            fetch('/api/get_association_balance', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `association_name=${encodeURIComponent(associationName)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.balance) {
+                    const totalFundsInput = document.getElementById('total_funds');
+                    if (totalFundsInput) {
+                        totalFundsInput.value = data.balance.toFixed(2);
+                    }
+                }
+            })
+            .catch(error => {
+                console.log('Could not auto-populate total funds:', error);
+            });
+        }
+    }
+
+    branchSelect.addEventListener('change', function() {
+        const selectedBranch = this.value;
+        filterAssociationsByBranch(selectedBranch);
     });
+
+    associationSelect.addEventListener('change', function() {
+        const selectedAssociation = this.value;
+        populateTotalFunds(selectedAssociation);
+    });
+
+    // Auto-populate total funds if association is pre-selected from URL
+    const preSelectedAssociation = associationSelect.value;
+    if (preSelectedAssociation) {
+        populateTotalFunds(preSelectedAssociation);
+    }
 });
 </script>
 {% endblock %} 

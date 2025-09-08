@@ -1,11 +1,15 @@
 """
-Account Maturity Optimization System
+Account Maturity Filter System
 
 This module implements a comprehensive system to:
 1. Scan for accounts approaching maturity in a 3-month window
 2. Apply business rule filters to identify target candidates
-3. Run OPTool optimization for each candidate with current rates and constraints
+3. Delegate optimization to the main optimizer for each candidate
 4. Generate results table and summary report
+
+The maturity filter focuses on scanning, filtering, and batch processing,
+while the actual optimization is handled by the main optimizer to ensure
+consistency and avoid code duplication.
 """
 
 import pandas as pd
@@ -21,14 +25,17 @@ import db_utils
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class MaturityOptimizer:
+class MaturityFilter:
     """
-    Main class for account maturity optimization system.
+    Main class for account maturity filtering and batch processing system.
+    
+    This class handles scanning for maturing accounts, applying business filters,
+    and coordinating batch optimization through the main optimizer.
     """
     
     def __init__(self, db_path: Optional[str] = None):
         """
-        Initialize the maturity optimizer.
+        Initialize the maturity filter.
         
         Args:
             db_path: Path to the database file. If None, uses default path.
@@ -79,6 +86,7 @@ class MaturityOptimizer:
             SELECT 
                 association_id,
                 association_name,
+                branch_name,
                 summary_account,
                 summary_description,
                 gl_account_no,
@@ -159,8 +167,7 @@ class MaturityOptimizer:
                 ]
             
             # Add additional business logic filters
-            # Filter out accounts with very short terms (less than 1 month)
-            filtered_df = filtered_df[filtered_df['days_to_maturity'] >= 30]
+            # Note: Removed the 30-day minimum filter to allow accounts maturing soon to be included
             
             # Filter out accounts with missing critical data
             filtered_df = filtered_df.dropna(subset=['bank_name', 'current_balance', 'maturity_date'])
@@ -221,31 +228,31 @@ class MaturityOptimizer:
             logger.error(f"Error getting current rates and constraints: {str(e)}")
             raise
     
-    def optimize_single_account(self, account: pd.Series, 
+    def process_single_account(self, account: pd.Series, 
                               rates_data: Dict, 
                               constraints: Dict) -> Dict[str, Any]:
         """
-        Run OPTool optimization for a single account.
+        Process a single account by delegating optimization to the main optimizer.
+        
+        This method coordinates the optimization process by:
+        1. Preparing parameters for the main optimizer
+        2. Calling the main optimizer to ensure consistency
+        3. Processing and formatting the results
         
         Args:
             account: Account data as pandas Series
-            rates_data: Current rates and bank relationship data
-            constraints: Current optimization constraints
+            rates_data: Current rates and bank relationship data (unused, kept for compatibility)
+            constraints: Current optimization constraints (unused, kept for compatibility)
             
         Returns:
             Dictionary with optimization results
         """
         try:
-            # Get an existing branch name from the database for optimization
-            conn = self.get_db_connection()
-            branch_query = "SELECT DISTINCT branch_name FROM branch_relationships LIMIT 1"
-            branch_result = pd.read_sql_query(branch_query, conn)
-            
-            if branch_result.empty:
-                # Fallback to a default branch name
+            # Use the branch name from the account data
+            branch_name = account.get('branch_name')
+            if not branch_name:
+                # Fallback to a default branch name if not available
                 branch_name = "Alliance Association Management, Inc. dba Associa Hill Country"
-            else:
-                branch_name = branch_result.iloc[0]['branch_name']
             
             # Prepare parameters for optimization
             params = {
@@ -260,6 +267,8 @@ class MaturityOptimizer:
             if not results['success']:
                 return {
                     'account_id': account['association_id'],
+                    'association_name': account['association_name'],
+                    'branch_name': branch_name,
                     'maturity_date': account['maturity_date'],
                     'current_allocation': account['current_balance'],
                     'recommended_allocation': None,
@@ -270,9 +279,69 @@ class MaturityOptimizer:
                 }
             
             # Extract key results
+            # Investment rates are stored as decimals (0.05 = 5%), so multiply by 100 to get percentage
             current_yield = account['investment_rate'] * 100 if account['investment_rate'] else 0
             optimized_yield = results['summary']['weighted_avg_rate']
             yield_lift = optimized_yield - current_yield
+            
+            # Calculate financial metrics
+            current_balance = account['current_balance']
+            optimized_balance = results['summary']['total_allocated']
+            
+            # Calculate current expected return (annual)
+            current_expected_return = (current_balance * current_yield / 100) if current_yield > 0 else 0
+            
+            # Get optimized expected return (term-period) and annualize it
+            optimized_expected_return_term = results['summary']['total_return']
+            
+            # Calculate average term length from optimization results
+            avg_term_months = 12  # Default to 12 months if no results
+            if results.get('results') and len(results['results']) > 0:
+                total_term_months = 0
+                total_allocated = 0
+                for result in results['results']:
+                    if result.get('CD Term'):
+                        term_months = float(result['CD Term'].split()[0])
+                        allocated_amount = result.get('Allocated Amount', 0)
+                        total_term_months += term_months * allocated_amount
+                        total_allocated += allocated_amount
+                
+                if total_allocated > 0:
+                    avg_term_months = total_term_months / total_allocated
+            
+            # Annualize the optimized return for fair comparison
+            optimized_expected_return_annual = optimized_expected_return_term * (12 / avg_term_months)
+            
+            # Calculate dollar improvement (now both annualized)
+            dollar_improvement = optimized_expected_return_annual - current_expected_return
+            
+            # Calculate percentage improvement
+            percentage_improvement = (yield_lift / current_yield * 100) if current_yield > 0 else 0
+            
+            # Calculate ECR benefits
+            current_ecr_monthly = results['summary'].get('current_ecr_monthly', 0)
+            optimized_ecr_monthly = results['summary'].get('optimized_ecr_monthly', 0)
+            ecr_benefit_monthly = optimized_ecr_monthly - current_ecr_monthly
+            ecr_benefit_annual = ecr_benefit_monthly * 12
+            
+            # Calculate current product details
+            current_product_type = account.get('investment_type', 'Unknown')
+            current_amount = current_balance
+            current_rate = current_yield
+            current_monthly_interest = current_expected_return / 12 if current_expected_return > 0 else 0
+            
+            # Calculate optimized product details (use the primary allocation from results)
+            optimized_product_type = "CD Portfolio"  # Default since optimization creates a portfolio
+            optimized_amount = optimized_balance
+            optimized_rate = optimized_yield
+            optimized_monthly_interest = optimized_expected_return_annual / 12 if optimized_expected_return_annual > 0 else 0
+            
+            # If we have detailed results, try to get the primary product type
+            if results.get('results') and len(results['results']) > 0:
+                # Get the largest allocation to determine primary product
+                primary_allocation = max(results['results'], key=lambda x: x.get('Allocated Amount', 0))
+                if primary_allocation.get('CD Term'):
+                    optimized_product_type = f"CD {primary_allocation['CD Term']}"
             
             # Identify binding constraints
             constraint_bindings = []
@@ -281,40 +350,86 @@ class MaturityOptimizer:
             
             return {
                 'account_id': account['association_id'],
+                'association_name': account['association_name'],
+                'branch_name': branch_name,
                 'maturity_date': account['maturity_date'],
-                'current_allocation': account['current_balance'],
-                'recommended_allocation': results['summary']['total_allocated'],
-                'projected_yield_bps': yield_lift * 100,  # Convert to basis points
+                'current_allocation': current_balance,
+                'recommended_allocation': optimized_balance,
+                'projected_yield_bps': yield_lift * 100,  # Keep for backward compatibility
                 'constraint_bindings': constraint_bindings,
                 'notes': 'Optimization successful',
                 'success': True,
                 'current_yield': current_yield,
                 'optimized_yield': optimized_yield,
                 'bank_count': results.get('bank_count', 0),
-                'term_count': results.get('term_count', 0)
+                'term_count': results.get('term_count', 0),
+                # New financial metrics
+                'current_expected_return': current_expected_return,
+                'optimized_expected_return': optimized_expected_return_annual,
+                'dollar_improvement': dollar_improvement,
+                'percentage_improvement': percentage_improvement,
+                'current_ecr_monthly': current_ecr_monthly,
+                'optimized_ecr_monthly': optimized_ecr_monthly,
+                'ecr_benefit_monthly': ecr_benefit_monthly,
+                'ecr_benefit_annual': ecr_benefit_annual,
+                # Product comparison details
+                'current_product_type': current_product_type,
+                'current_amount': current_amount,
+                'current_rate': current_rate,
+                'current_monthly_interest': current_monthly_interest,
+                'optimized_product_type': optimized_product_type,
+                'optimized_amount': optimized_amount,
+                'optimized_rate': optimized_rate,
+                'optimized_monthly_interest': optimized_monthly_interest
             }
             
         except Exception as e:
             logger.error(f"Error optimizing account {account['association_id']}: {str(e)}")
             return {
                 'account_id': account['association_id'],
+                'association_name': account['association_name'],
+                'branch_name': account.get('branch_name', 'Unknown'),
                 'maturity_date': account['maturity_date'],
                 'current_allocation': account['current_balance'],
                 'recommended_allocation': None,
                 'projected_yield_bps': None,
                 'constraint_bindings': [],
                 'notes': f"Error during optimization: {str(e)}",
-                'success': False
+                'success': False,
+                # New financial metrics (set to None for failed optimizations)
+                'current_expected_return': None,
+                'optimized_expected_return': None,
+                'dollar_improvement': None,
+                'percentage_improvement': None,
+                'current_ecr_monthly': None,
+                'optimized_ecr_monthly': None,
+                'ecr_benefit_monthly': None,
+                'ecr_benefit_annual': None,
+                # Product comparison details (set to None for failed optimizations)
+                'current_product_type': account.get('investment_type', 'Unknown'),
+                'current_amount': account['current_balance'],
+                'current_rate': None,
+                'current_monthly_interest': None,
+                'optimized_product_type': None,
+                'optimized_amount': None,
+                'optimized_rate': None,
+                'optimized_monthly_interest': None
             }
     
-    def run_maturity_optimization(self, 
-                                 months_ahead: int = 3,
-                                 min_balance: float = 100000,
-                                 max_balance: float = 10000000,
-                                 allowed_investment_types: Optional[List[str]] = None,
-                                 excluded_banks: Optional[List[str]] = None) -> Dict[str, Any]:
+    def run_maturity_filtering(self, 
+                              months_ahead: int = 3,
+                              min_balance: float = 100000,
+                              max_balance: float = 10000000,
+                              allowed_investment_types: Optional[List[str]] = None,
+                              excluded_banks: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Run the complete maturity optimization pipeline.
+        Run the complete maturity filtering and batch optimization pipeline.
+        
+        This method:
+        1. Scans for accounts approaching maturity
+        2. Applies business rule filters
+        3. Delegates optimization to the main optimizer for each account
+        4. Generates summary reports
         
         Args:
             months_ahead: Number of months ahead to scan
@@ -327,7 +442,7 @@ class MaturityOptimizer:
             Dictionary with optimization results and summary
         """
         try:
-            logger.info("Starting maturity optimization pipeline")
+            logger.info("Starting maturity filtering and batch optimization pipeline")
             
             # Step 1: Scan for maturing accounts
             maturing_accounts = self.scan_maturing_accounts(months_ahead)
@@ -352,7 +467,7 @@ class MaturityOptimizer:
             for idx, account in target_candidates.iterrows():
                 logger.info(f"Optimizing account {account['association_id']} ({idx + 1}/{len(target_candidates)})")
                 
-                result = self.optimize_single_account(account, rates_data, constraints)
+                result = self.process_single_account(account, rates_data, constraints)
                 optimization_results.append(result)
                 
                 if result['success']:
@@ -422,9 +537,22 @@ class MaturityOptimizer:
                 avg_yield_lift = yield_improvements.mean() if not yield_improvements.empty else 0
                 total_yield_lift_bps = yield_improvements.sum() if not yield_improvements.empty else 0
                 
-                # Top 10 accounts by yield lift
-                top_accounts = successful_results.nlargest(10, 'projected_yield_bps')[
-                    ['account_id', 'maturity_date', 'current_allocation', 'projected_yield_bps']
+                # Calculate new financial metrics
+                total_dollar_improvement = successful_results['dollar_improvement'].sum()
+                total_optimized_expected_return = successful_results['optimized_expected_return'].sum()
+                total_ecr_benefit_annual = successful_results['ecr_benefit_annual'].sum()
+                avg_percentage_improvement = successful_results['percentage_improvement'].mean()
+                
+                # Calculate product comparison metrics
+                total_monthly_interest_improvement = (successful_results['optimized_monthly_interest'] - successful_results['current_monthly_interest']).sum()
+                avg_rate_improvement = (successful_results['optimized_rate'] - successful_results['current_rate']).mean()
+                
+                # Top 10 accounts by monthly interest improvement
+                top_accounts = successful_results.nlargest(10, 'optimized_monthly_interest')[
+                    ['account_id', 'association_name', 'branch_name', 'maturity_date', 'current_allocation', 
+                     'dollar_improvement', 'percentage_improvement', 'optimized_expected_return', 'ecr_benefit_annual',
+                     'current_product_type', 'current_amount', 'current_rate', 'current_monthly_interest',
+                     'optimized_product_type', 'optimized_amount', 'optimized_rate', 'optimized_monthly_interest']
                 ]
                 
                 # Maturity distribution
@@ -435,6 +563,12 @@ class MaturityOptimizer:
                 total_recommended_allocation = 0
                 avg_yield_lift = 0
                 total_yield_lift_bps = 0
+                total_dollar_improvement = 0
+                total_optimized_expected_return = 0
+                total_ecr_benefit_annual = 0
+                avg_percentage_improvement = 0
+                total_monthly_interest_improvement = 0
+                avg_rate_improvement = 0
                 top_accounts = pd.DataFrame()
                 maturity_distribution = pd.Series()
             
@@ -449,7 +583,15 @@ class MaturityOptimizer:
                 'total_yield_lift_bps': total_yield_lift_bps,
                 'top_10_accounts': top_accounts.to_dict('records') if not top_accounts.empty else [],
                 'maturity_distribution': maturity_distribution.to_dict() if not maturity_distribution.empty else {},
-                'failed_accounts': results_df[results_df['success'] == False][['account_id', 'notes']].to_dict('records') if not results_df.empty else []
+                'failed_accounts': results_df[results_df['success'] == False][['account_id', 'association_name', 'branch_name', 'notes']].to_dict('records') if not results_df.empty else [],
+                # New financial metrics
+                'total_dollar_improvement': total_dollar_improvement,
+                'total_optimized_expected_return': total_optimized_expected_return,
+                'total_ecr_benefit_annual': total_ecr_benefit_annual,
+                'avg_percentage_improvement': avg_percentage_improvement,
+                # Product comparison metrics
+                'total_monthly_interest_improvement': total_monthly_interest_improvement,
+                'avg_rate_improvement': avg_rate_improvement
             }
             
             return summary
@@ -503,6 +645,8 @@ class MaturityOptimizer:
             CREATE TABLE IF NOT EXISTS {table_name} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 account_id INTEGER,
+                association_name TEXT,
+                branch_name TEXT,
                 maturity_date TEXT,
                 current_allocation REAL,
                 recommended_allocation REAL,
@@ -524,12 +668,14 @@ class MaturityOptimizer:
             for _, row in results_df.iterrows():
                 conn.execute(f"""
                 INSERT INTO {table_name} (
-                    account_id, maturity_date, current_allocation, recommended_allocation,
+                    account_id, association_name, branch_name, maturity_date, current_allocation, recommended_allocation,
                     projected_yield_bps, constraint_bindings, notes, success,
                     current_yield, optimized_yield, bank_count, term_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     row['account_id'],
+                    row['association_name'],
+                    row['branch_name'],
                     row['maturity_date'],
                     row['current_allocation'],
                     row['recommended_allocation'],
@@ -582,11 +728,11 @@ class MaturityOptimizer:
             
             top_accounts = summary.get('top_10_accounts', [])
             if top_accounts:
-                md_content += "| Account ID | Maturity Date | Current Allocation | Yield Lift (bps) |\n"
-                md_content += "|------------|---------------|-------------------|------------------|\n"
+                md_content += "| Association Name | Branch Name | Maturity Date | Current Allocation | Yield Lift (bps) |\n"
+                md_content += "|------------------|-------------|---------------|-------------------|------------------|\n"
                 
                 for account in top_accounts[:10]:
-                    md_content += f"| {account['account_id']} | {account['maturity_date']} | ${account['current_allocation']:,.0f} | {account['projected_yield_bps']:.1f} |\n"
+                    md_content += f"| {account['association_name']} | {account['branch_name']} | {account['maturity_date']} | ${account['current_allocation']:,.0f} | {account['projected_yield_bps']:.1f} |\n"
             else:
                 md_content += "*No successful optimizations to display*\n"
             
@@ -600,7 +746,7 @@ class MaturityOptimizer:
             failed_accounts = summary.get('failed_accounts', [])
             if failed_accounts:
                 for account in failed_accounts:
-                    md_content += f"- **Account {account['account_id']}**: {account['notes']}\n"
+                    md_content += f"- **{account['association_name']} ({account['branch_name']})**: {account['notes']}\n"
             else:
                 md_content += "*No failed optimizations*\n"
             
@@ -615,14 +761,14 @@ class MaturityOptimizer:
 
 def main():
     """
-    Main function to run the maturity optimization system.
+    Main function to run the maturity filtering system.
     """
     try:
-        # Initialize the optimizer
-        maturity_opt = MaturityOptimizer()
+        # Initialize the maturity filter
+        maturity_filter = MaturityFilter()
         
-        # Run optimization with default parameters
-        results = maturity_opt.run_maturity_optimization(
+        # Run filtering and batch optimization with default parameters
+        results = maturity_filter.run_maturity_filtering(
             months_ahead=3,
             min_balance=100000,
             max_balance=10000000,
@@ -632,11 +778,11 @@ def main():
         
         if results['success']:
             # Generate markdown summary
-            markdown_summary = maturity_opt.generate_markdown_summary(results['summary'])
+            markdown_summary = maturity_filter.generate_markdown_summary(results['summary'])
             
             # Print summary to console
             print("\n" + "="*80)
-            print("MATURITY OPTIMIZATION COMPLETED SUCCESSFULLY")
+            print("MATURITY FILTERING COMPLETED SUCCESSFULLY")
             print("="*80)
             print(markdown_summary)
             

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Maturing Accounts Optimization - Fund Allocation Optimizer{% endblock %}
+{% block title %}Maturity Filter - Fund Allocation Optimizer{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -51,6 +51,19 @@
         font-size: 0.8rem;
         padding: 0.25rem 0.5rem;
     }
+    .association-link {
+        color: #007bff;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    .association-link:hover {
+        color: #0056b3;
+        text-decoration: underline;
+        cursor: pointer;
+    }
+    .association-link:visited {
+        color: #6f42c1;
+    }
 </style>
 {% endblock %}
 
@@ -75,30 +88,30 @@
                         <h5 class="mb-0"><i class="bi bi-gear"></i> Optimization Parameters</h5>
                     </div>
                     <div class="card-body">
-                        <form method="POST" action="{{ url_for('admin_maturity_optimization') }}">
+                        <form method="POST" action="{{ url_for('admin_maturity_filter') }}">
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="months_ahead" class="form-label">Months Ahead to Scan</label>
                                         <select class="form-select" id="months_ahead" name="months_ahead" required>
-                                            <option value="1">1 Month</option>
-                                            <option value="2">2 Months</option>
-                                            <option value="3" selected>3 Months</option>
-                                            <option value="6">6 Months</option>
-                                            <option value="12">12 Months</option>
+                                            <option value="1" {% if maturity_params and maturity_params.months_ahead == 1 %}selected{% endif %}>1 Month</option>
+                                            <option value="2" {% if maturity_params and maturity_params.months_ahead == 2 %}selected{% endif %}>2 Months</option>
+                                            <option value="3" {% if not maturity_params or maturity_params.months_ahead == 3 %}selected{% endif %}>3 Months</option>
+                                            <option value="6" {% if maturity_params and maturity_params.months_ahead == 6 %}selected{% endif %}>6 Months</option>
+                                            <option value="12" {% if maturity_params and maturity_params.months_ahead == 12 %}selected{% endif %}>12 Months</option>
                                         </select>
                                     </div>
                                     
                                     <div class="mb-3">
                                         <label for="min_balance" class="form-label">Minimum Balance ($)</label>
                                         <input type="number" class="form-control" id="min_balance" name="min_balance" 
-                                               value="100000" min="0" step="1000" required>
+                                               value="{% if maturity_params %}{{ maturity_params.min_balance }}{% else %}100000{% endif %}" min="0" step="1000" required>
                                     </div>
                                     
                                     <div class="mb-3">
                                         <label for="max_balance" class="form-label">Maximum Balance ($)</label>
                                         <input type="number" class="form-control" id="max_balance" name="max_balance" 
-                                               value="10000000" min="0" step="100000" required>
+                                               value="{% if maturity_params %}{{ maturity_params.max_balance }}{% else %}10000000{% endif %}" min="0" step="100000" required>
                                     </div>
                                 </div>
                                 
@@ -107,28 +120,32 @@
                                         <label class="form-label">Investment Types</label>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" name="investment_types" 
-                                                   value="Certificate of Deposit" id="cd_type" checked>
+                                                   value="Certificate of Deposit" id="cd_type" 
+                                                   {% if not maturity_params or 'Certificate of Deposit' in maturity_params.investment_types %}checked{% endif %}>
                                             <label class="form-check-label" for="cd_type">
                                                 Certificate of Deposit
                                             </label>
                                         </div>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" name="investment_types" 
-                                                   value="Money Market" id="mm_type">
+                                                   value="Money Market" id="mm_type"
+                                                   {% if maturity_params and 'Money Market' in maturity_params.investment_types %}checked{% endif %}>
                                             <label class="form-check-label" for="mm_type">
                                                 Money Market
                                             </label>
                                         </div>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" name="investment_types" 
-                                                   value="Checking" id="checking_type">
+                                                   value="Checking" id="checking_type"
+                                                   {% if maturity_params and 'Checking' in maturity_params.investment_types %}checked{% endif %}>
                                             <label class="form-check-label" for="checking_type">
                                                 Checking
                                             </label>
                                         </div>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" name="investment_types" 
-                                                   value="Savings" id="savings_type">
+                                                   value="Savings" id="savings_type"
+                                                   {% if maturity_params and 'Savings' in maturity_params.investment_types %}checked{% endif %}>
                                             <label class="form-check-label" for="savings_type">
                                                 Savings
                                             </label>
@@ -139,7 +156,10 @@
                                         <label class="form-label">Exclude Banks</label>
                                         <select class="form-select" name="excluded_banks" multiple size="4">
                                             {% for bank in banks %}
-                                            <option value="{{ bank }}">{{ bank }}</option>
+                                            <option value="{{ bank }}" 
+                                                    {% if maturity_params and bank in maturity_params.excluded_banks %}selected{% endif %}>
+                                                {{ bank }}
+                                            </option>
                                             {% endfor %}
                                         </select>
                                         <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple banks</small>
@@ -159,71 +179,112 @@
                 <!-- Results Section -->
                 {% if maturity_results %}
                 <div class="card">
-                    <div class="card-header bg-success text-white">
+                    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
                         <h5 class="mb-0"><i class="bi bi-check-circle"></i> Optimization Results</h5>
+                        <div class="d-flex align-items-center">
+                            <a href="{{ url_for('admin_maturity_filter', clear_results='true') }}" 
+                               class="btn btn-outline-light btn-sm" 
+                               onclick="return confirm('Are you sure you want to clear the results?')">
+                                <i class="bi bi-x-circle"></i> Clear Results
+                            </a>
+                        </div>
                     </div>
                     <div class="card-body">
                         <!-- Summary Metrics -->
                         <div class="row mb-4">
-                            <div class="col-md-3 mb-3">
+                            <div class="col-md-4 mb-3">
                                 <div class="card metric-card success">
                                     <div class="card-body text-center">
                                         <h6 class="card-subtitle mb-2 text-muted">Total Accounts</h6>
-                                        <div class="metric-value">{{ maturity_results.summary.total_accounts }}</div>
+                                        <div class="metric-value">{{ maturity_results.summary.get('total_accounts', 0) }}</div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3 mb-3">
-                                <div class="card metric-card success">
+                            <div class="col-md-4 mb-3">
+                                <div class="card metric-card {% if maturity_results.summary.get('total_dollar_improvement', 0) > 0 %}success{% else %}warning{% endif %}">
                                     <div class="card-body text-center">
-                                        <h6 class="card-subtitle mb-2 text-muted">Success Rate</h6>
-                                        <div class="metric-value">{{ "%.1f"|format(maturity_results.summary.success_rate) }}%</div>
+                                        <h6 class="card-subtitle mb-2 text-muted">Total Monthly Interest Improvement</h6>
+                                        <div class="metric-value">${{ "{:,.0f}".format(maturity_results.summary.get('total_monthly_interest_improvement', 0)) }}</div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3 mb-3">
-                                <div class="card metric-card {% if maturity_results.summary.avg_yield_lift_bps > 0 %}success{% else %}warning{% endif %}">
+                            <div class="col-md-4 mb-3">
+                                <div class="card metric-card {% if maturity_results.summary.get('avg_rate_improvement', 0) > 0 %}success{% else %}warning{% endif %}">
                                     <div class="card-body text-center">
-                                        <h6 class="card-subtitle mb-2 text-muted">Avg Yield Lift</h6>
-                                        <div class="metric-value">{{ "%.1f"|format(maturity_results.summary.avg_yield_lift_bps) }} bps</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3 mb-3">
-                                <div class="card metric-card {% if maturity_results.summary.total_yield_lift_bps > 0 %}success{% else %}warning{% endif %}">
-                                    <div class="card-body text-center">
-                                        <h6 class="card-subtitle mb-2 text-muted">Total Yield Lift</h6>
-                                        <div class="metric-value">{{ "%.1f"|format(maturity_results.summary.total_yield_lift_bps) }} bps</div>
+                                        <h6 class="card-subtitle mb-2 text-muted">Average Rate Improvement</h6>
+                                        <div class="metric-value">{{ "{:.2f}".format(maturity_results.summary.get('avg_rate_improvement', 0)) }}%</div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Top Accounts by Yield Lift -->
-                        {% if maturity_results.summary.top_10_accounts %}
-                        <h6 class="mb-3">Top Accounts by Yield Improvement</h6>
+                        <!-- Product Comparison Table -->
+                        {% if maturity_results.summary.get('top_10_accounts') %}
+                        <h6 class="mb-3">Product Comparison: Current vs Optimized</h6>
                         <div class="table-responsive mb-4">
                             <table class="table table-striped table-bordered results-table">
                                 <thead>
                                     <tr>
-                                        <th>Account ID</th>
-                                        <th>Maturity Date</th>
-                                        <th>Current Allocation</th>
-                                        <th>Yield Lift (bps)</th>
+                                        <th rowspan="2">Association Name</th>
+                                        <th rowspan="2">Branch Name</th>
+                                        <th rowspan="2">Maturity Date</th>
+                                        <th colspan="4" class="text-center">Current Product</th>
+                                        <th colspan="4" class="text-center">Optimized Product</th>
+                                    </tr>
+                                    <tr>
+                                        <th>Product Type</th>
+                                        <th>Amount</th>
+                                        <th>Rate (%)</th>
+                                        <th>Monthly Interest</th>
+                                        <th>Product Type</th>
+                                        <th>Amount</th>
+                                        <th>Rate (%)</th>
+                                        <th>Monthly Interest</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for account in maturity_results.summary.top_10_accounts %}
+                                    {% for account in maturity_results.summary.get('top_10_accounts', []) %}
                                     <tr>
-                                        <td><strong>{{ account.account_id }}</strong></td>
+                                        <td>
+                                            <strong>
+                                                <a href="/?association={{ account.get('association_name', '')|urlencode }}&branch={{ account.get('branch_name', '')|urlencode }}&auto_optimize=true" 
+                                                   class="association-link" 
+                                                   title="Click to run optimization for this association">
+                                                    {{ account.get('association_name', 'N/A') }}
+                                                </a>
+                                            </strong>
+                                        </td>
+                                        <td>{{ account.get('branch_name', 'N/A') }}</td>
                                         <td>
                                             <span class="badge bg-info maturity-badge">
-                                                {{ account.maturity_date.strftime('%Y-%m-%d') if account.maturity_date is string else account.maturity_date.strftime('%Y-%m-%d') }}
+                                                {% set date_str = account.get('maturity_date', 'N/A')|string %}
+                                                {% if date_str != 'N/A' %}
+                                                    {% set date_parts = date_str[:10].split('-') %}
+                                                    {% if date_parts|length == 3 %}
+                                                        {% set month_num = date_parts[1]|int %}
+                                                        {% set months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+                                                        {{ months[month_num-1] }} {{ date_parts[2]|int }}, {{ date_parts[0] }}
+                                                    {% else %}
+                                                        {{ date_str[:10] }}
+                                                    {% endif %}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
                                             </span>
                                         </td>
-                                        <td>${{ "{:,.0f}".format(account.current_allocation) }}</td>
-                                        <td class="yield-improvement {% if account.projected_yield_bps > 0 %}positive{% else %}negative{% endif %}">
-                                            {{ "{:+.1f}".format(account.projected_yield_bps) }}
+                                        <!-- Current Product -->
+                                        <td>{{ account.get('current_product_type', 'N/A') }}</td>
+                                        <td>${{ "{:,.0f}".format(account.get('current_amount', 0)) }}</td>
+                                        <td>{{ "{:.2f}".format(account.get('current_rate', 0)) }}%</td>
+                                        <td>${{ "{:,.0f}".format(account.get('current_monthly_interest', 0)) }}</td>
+                                        <!-- Optimized Product -->
+                                        <td>{{ account.get('optimized_product_type', 'N/A') }}</td>
+                                        <td>${{ "{:,.0f}".format(account.get('optimized_amount', 0)) }}</td>
+                                        <td class="yield-improvement {% if account.get('optimized_rate', 0) > account.get('current_rate', 0) %}positive{% else %}negative{% endif %}">
+                                            {{ "{:.2f}".format(account.get('optimized_rate', 0)) }}%
+                                        </td>
+                                        <td class="yield-improvement {% if account.get('optimized_monthly_interest', 0) > account.get('current_monthly_interest', 0) %}positive{% else %}negative{% endif %}">
+                                            ${{ "{:,.0f}".format(account.get('optimized_monthly_interest', 0)) }}
                                         </td>
                                     </tr>
                                     {% endfor %}
@@ -233,10 +294,10 @@
                         {% endif %}
 
                         <!-- Maturity Distribution -->
-                        {% if maturity_results.summary.maturity_distribution %}
+                        {% if maturity_results.summary.get('maturity_distribution') %}
                         <h6 class="mb-3">Maturity Distribution</h6>
                         <div class="row mb-4">
-                            {% for month, count in maturity_results.summary.maturity_distribution.items() %}
+                            {% for month, count in maturity_results.summary.get('maturity_distribution', {}).items() %}
                             <div class="col-md-3 mb-2">
                                 <div class="card">
                                     <div class="card-body text-center">
@@ -251,21 +312,31 @@
                         {% endif %}
 
                         <!-- Failed Optimizations -->
-                        {% if maturity_results.summary.failed_accounts %}
+                        {% if maturity_results.summary.get('failed_accounts') %}
                         <h6 class="mb-3">Failed Optimizations</h6>
                         <div class="table-responsive mb-4">
                             <table class="table table-striped table-bordered results-table">
                                 <thead>
                                     <tr>
-                                        <th>Account ID</th>
+                                        <th>Association Name</th>
+                                        <th>Branch Name</th>
                                         <th>Notes</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for account in maturity_results.summary.failed_accounts %}
+                                    {% for account in maturity_results.summary.get('failed_accounts', []) %}
                                     <tr>
-                                        <td><strong>{{ account.account_id }}</strong></td>
-                                        <td class="text-danger">{{ account.notes }}</td>
+                                        <td>
+                                            <strong>
+                                                <a href="/?association={{ account.get('association_name', '')|urlencode }}&branch={{ account.get('branch_name', '')|urlencode }}&auto_optimize=true" 
+                                                   class="association-link" 
+                                                   title="Click to run optimization for this association">
+                                                    {{ account.get('association_name', 'N/A') }}
+                                                </a>
+                                            </strong>
+                                        </td>
+                                        <td>{{ account.get('branch_name', 'N/A') }}</td>
+                                        <td class="text-danger">{{ account.get('notes', 'N/A') }}</td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -281,10 +352,10 @@
                                         <div class="card-body">
                                             <h5 class="card-title"><i class="bi bi-download"></i> Download Results</h5>
                                             <p class="card-text">Download the complete optimization results and summary report.</p>
-                                            <a href="{{ url_for('admin_maturity_optimization') }}?download=csv" class="btn btn-success me-2">
+                                            <a href="{{ url_for('admin_maturity_filter') }}?download=csv" class="btn btn-success me-2">
                                                 <i class="bi bi-file-earmark-csv"></i> CSV Results
                                             </a>
-                                            <a href="{{ url_for('admin_maturity_optimization') }}?download=summary" class="btn btn-info">
+                                            <a href="{{ url_for('admin_maturity_filter') }}?download=summary" class="btn btn-info">
                                                 <i class="bi bi-file-earmark-text"></i> Summary Report
                                             </a>
                                         </div>
@@ -322,4 +393,31 @@
         </div>
     </div>
 </div>
+
+<script>
+// Ensure form submission refreshes results
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form[method="POST"]');
+    if (form) {
+        form.addEventListener('submit', function() {
+            // Show loading state
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running Optimization...';
+                submitBtn.disabled = true;
+            }
+        });
+    }
+    
+    // Auto-refresh results every 30 seconds if results exist
+    {% if maturity_results %}
+    setInterval(function() {
+        // Only refresh if no form interaction is happening
+        if (!document.querySelector('form[method="POST"]:hover')) {
+            location.reload();
+        }
+    }, 30000);
+    {% endif %}
+});
+</script>
 {% endblock %}
